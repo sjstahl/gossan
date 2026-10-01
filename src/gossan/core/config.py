@@ -42,6 +42,21 @@ class GeorefConfig(BaseModel):
     dpi: int = Field(default=200, ge=72, le=600)
 
 
+class SatelliteConfig(BaseModel):
+    """Settings for the satellite scene connectors (``gossan harvest --source emit|enmap|aster``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: STAC date or interval, e.g. "2023-01-01/2024-12-31" or "2022-06-01/..". Unset: all dates
+    #: (ASTER is then capped at April 2008, when its SWIR detectors failed).
+    datetime: str | None = None
+    #: Drop scenes with more cloud than this (percent); scenes with no cloud value are kept.
+    max_cloud_percent: float = Field(default=100.0, ge=0, le=100)
+    emit_collection: str = "EMITL2ARFL_001"
+    enmap_collection: str = "ENMAP_HSI_L2A"
+    aster_collection: str = "AST_L1T_004"
+
+
 class ProjectConfig(BaseModel):
     """Contents of a project's ``project.yaml``."""
 
@@ -54,6 +69,7 @@ class ProjectConfig(BaseModel):
     aoi_path: str = Field(default=AOI_FILE, description="AOI path relative to the project folder.")
     modules: list[Module] = Field(default_factory=lambda: [Module.HARVEST, Module.REPORT])
     georef: GeorefConfig = Field(default_factory=GeorefConfig)
+    satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")

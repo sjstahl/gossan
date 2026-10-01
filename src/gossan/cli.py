@@ -43,6 +43,7 @@ from gossan.digitize.text import extract_text, page_ranges
 from gossan.harvest import CONNECTORS
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
 from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
+from gossan.harvest.satellite.stac import SatelliteAuthError
 from gossan.leads.generator import run_leads
 from gossan.leads.pack import LeadNotFoundError, build_pack
 from gossan.leads.scoring import MissingLayerError
@@ -162,6 +163,15 @@ def harvest(
             "layer into raw/aris_pdfs/. 0 (default) downloads none; reports can be tens of MB.",
         ),
     ] = 0,
+    limit_scenes: Annotated[
+        int,
+        typer.Option(
+            min=0,
+            help="For the satellite sources (emit, enmap, aster): download the assets of up to "
+            "this many scenes (best AOI coverage, least cloud first) into raw/satellite/. 0 "
+            "(default) only searches and writes the scene footprints; a scene is 0.5 to several GB.",
+        ),
+    ] = 0,
 ) -> None:
     """Download public data for the project AOI into data.gpkg and rasters/.
 
@@ -171,6 +181,10 @@ def harvest(
     Manual fallback: if a source is unavailable, download the data yourself and load
     it with 'gossan ingest' (vector files and .tif grids). nrcan_geophysics needs a
     configured WCS (see its module docs) and otherwise prints manual instructions.
+
+    Satellite scenes (--source emit,enmap,aster) are searched without credentials; downloading
+    (--limit-scenes N) needs EARTHDATA_TOKEN (emit, aster) or EOC_USERNAME and EOC_PASSWORD
+    (enmap). They are not part of a plain harvest. Search settings: satellite: in project.yaml.
     """
     proj = _open_project(project)
     names = (
@@ -185,9 +199,11 @@ def harvest(
     failed = False
     for n in names:
         connector = CONNECTORS[n](proj)
+        if hasattr(connector, "limit_scenes"):
+            connector.limit_scenes = limit_scenes
         try:
             count = connector.run()
-        except ManualDownloadRequired as e:
+        except (ManualDownloadRequired, SatelliteAuthError) as e:
             typer.secho(f"{n}: {e}", fg="yellow", err=True)
             failed = True
         except OSError as e:  # network failures (URLError is an OSError)
@@ -196,6 +212,8 @@ def harvest(
             failed = True
         else:
             typer.echo(f"{n}: {count} {connector.output_description}")
+            if hasattr(connector, "report"):
+                typer.echo(f"  {connector.report.text(n)}")
 
     if limit_pdfs:
         try:

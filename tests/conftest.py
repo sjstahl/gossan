@@ -194,3 +194,57 @@ def fake_claude(monkeypatch) -> FakeClaude:
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-not-real")
     monkeypatch.setattr(claude_vision, "make_client", lambda: fake)
     return fake
+
+
+# --- satellite STAC connectors: fixtures only, no network, no big downloads -------------------
+
+
+class FakeStac:
+    """Serves small committed STAC responses and writes tiny stand-in files for downloads."""
+
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, str, dict | None]] = []  # (method, url, body)
+        self.downloads: list[tuple[str, dict]] = []  # (url, headers)
+        self.responses = {
+            "emit": ["stac_emit_p1.json", "stac_emit_p2.json"],
+            "aster": ["stac_aster.json"],
+            "enmap": ["stac_enmap_p1.json", "stac_enmap_p2.json"],
+        }
+        self.html_for: set[str] = set()  # downloads that return a login page instead of the file
+        self.page: dict[str, int] = {}
+
+
+@pytest.fixture
+def stac(monkeypatch) -> FakeStac:
+    import json
+
+    from gossan.harvest.satellite.stac import StacSatelliteConnector
+
+    fake = FakeStac()
+
+    def request_json(self, method, url, body):
+        fake.requests.append((method, url, body))
+        # A fresh search starts at page 1; following a next link (GET, or POST with startIndex) advances.
+        follows = method == "GET" or (body is not None and "startIndex" in body)
+        fake.page[self.name] = fake.page.get(self.name, -1) + 1 if follows else 0
+        pages = fake.responses[self.name]
+        return json.loads((FIXTURES / pages[min(fake.page[self.name], len(pages) - 1)]).read_text(encoding="utf-8"))
+
+    def download(self, url, part, headers):
+        fake.downloads.append((url, headers))
+        name = url.rsplit("/", 1)[-1].lower()
+        if url in fake.html_for:
+            part.write_bytes(b"<!DOCTYPE html><html>Please sign in</html>")
+        elif name.endswith(".nc"):
+            part.write_bytes(b"\x89HDF\r\n\x1a\n" + b"x" * 64)
+        elif name.endswith((".tif", ".tiff")):
+            part.write_bytes(b"II*\x00" + b"x" * 64)
+        else:
+            part.write_bytes(b"<?xml version='1.0'?><metadata/>")
+
+    monkeypatch.setattr(StacSatelliteConnector, "_request_json", request_json)
+    monkeypatch.setattr(StacSatelliteConnector, "_download", download)
+    monkeypatch.delenv("EARTHDATA_TOKEN", raising=False)
+    monkeypatch.delenv("EOC_USERNAME", raising=False)
+    monkeypatch.delenv("EOC_PASSWORD", raising=False)
+    return fake

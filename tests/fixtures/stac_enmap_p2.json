@@ -1,0 +1,89 @@
+{
+ "type": "FeatureCollection",
+ "numberMatched": 3,
+ "features": [
+  {
+   "type": "Feature",
+   "stac_version": "1.0.0",
+   "id": "ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -120.5,
+       50.5
+      ],
+      [
+       -120.3,
+       50.5
+      ],
+      [
+       -120.3,
+       50.9
+      ],
+      [
+       -120.5,
+       50.9
+      ],
+      [
+       -120.5,
+       50.5
+      ]
+     ]
+    ]
+   },
+   "bbox": [
+    -120.5,
+    50.5,
+    -120.1,
+    50.9
+   ],
+   "properties": {
+    "datetime": "2023-09-25T10:43:31.891633Z",
+    "eo:cloud_cover": 5,
+    "platform": "enmap"
+   },
+   "links": [
+    {
+     "rel": "self",
+     "href": "https://stac.test/items/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z"
+    }
+   ],
+   "assets": {
+    "metadata": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-METADATA.XML",
+     "type": "application/xml"
+    },
+    "image": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-SPECTRAL_IMAGE_COG.TIF",
+     "type": "image/tiff; application=geotiff; profile=cloud-optimized"
+    },
+    "vnir": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-SPECTRAL_IMAGE_VNIR_COG.TIF"
+    },
+    "swir": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-SPECTRAL_IMAGE_SWIR_COG.TIF"
+    },
+    "thumbnail": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-QL_VNIR_COG_thumbnail.png",
+     "type": "image/png"
+    },
+    "quality_classes": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-QL_QUALITY_CLASSES_COG.TIF"
+    },
+    "quality_cloud": {
+     "href": "https://download.geoservice.dlr.de/ENMAP/files/L2A/2024/05/26/DT0000076494/4/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z/ENMAP01-____L2A-DT0000044370_20230925T104329Z_029_V010502_20260106T022452Z-QL_QUALITY_CLOUD_COG.TIF"
+    }
+   }
+  }
+ ],
+ "links": [
+  {
+   "rel": "self",
+   "method": "POST",
+   "merge": true,
+   "href": "https://stac.test/enmap/search"
+  }
+ ]
+}

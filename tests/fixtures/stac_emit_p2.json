@@ -1,0 +1,160 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "stac_version": "1.0.0",
+   "id": "EMIT_L2A_RFL_001_20240103T000000_0000003_001",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -120.5,
+       50.5
+      ],
+      [
+       -120.3,
+       50.5
+      ],
+      [
+       -120.3,
+       50.9
+      ],
+      [
+       -120.5,
+       50.9
+      ],
+      [
+       -120.5,
+       50.5
+      ]
+     ]
+    ]
+   },
+   "bbox": [
+    -120.5,
+    50.5,
+    -120.1,
+    50.9
+   ],
+   "properties": {
+    "datetime": "2023-03-03T00:00:00.000Z",
+    "eo:cloud_cover": 10
+   },
+   "links": [
+    {
+     "rel": "self",
+     "href": "https://stac.test/items/EMIT_L2A_RFL_001_20240103T000000_0000003_001"
+    }
+   ],
+   "assets": {
+    "browse": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001.png",
+     "type": "image/png"
+    },
+    "001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFLUNCERT_001_20240103T000000_0000003_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFLUNCERT_001_20240103T000000_0000003_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_MASK_001_20240103T000000_0000003_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_MASK_001_20240103T000000_0000003_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "s3_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001": {
+     "href": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240103T000000_0000003_001/EMIT_L2A_RFL_001_20240103T000000_0000003_001.nc"
+    }
+   }
+  },
+  {
+   "type": "Feature",
+   "stac_version": "1.0.0",
+   "id": "EMIT_L2A_RFL_001_20240104T000000_0000004_001",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -120.5,
+       50.5
+      ],
+      [
+       -120.1,
+       50.5
+      ],
+      [
+       -120.1,
+       50.9
+      ],
+      [
+       -120.5,
+       50.9
+      ],
+      [
+       -120.5,
+       50.5
+      ]
+     ]
+    ]
+   },
+   "bbox": [
+    -120.5,
+    50.5,
+    -120.1,
+    50.9
+   ],
+   "properties": {
+    "datetime": "2022-04-04T00:00:00.000Z"
+   },
+   "links": [
+    {
+     "rel": "self",
+     "href": "https://stac.test/items/EMIT_L2A_RFL_001_20240104T000000_0000004_001"
+    }
+   ],
+   "assets": {
+    "browse": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-public/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001.png",
+     "type": "image/png"
+    },
+    "001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFLUNCERT_001_20240104T000000_0000004_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFLUNCERT_001_20240104T000000_0000004_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_MASK_001_20240104T000000_0000004_001": {
+     "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_MASK_001_20240104T000000_0000004_001.nc",
+     "roles": [
+      "data"
+     ]
+    },
+    "s3_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001": {
+     "href": "s3://lp-prod-protected/EMITL2ARFL.001/EMIT_L2A_RFL_001_20240104T000000_0000004_001/EMIT_L2A_RFL_001_20240104T000000_0000004_001.nc"
+    }
+   }
+  }
+ ],
+ "links": [
+  {
+   "rel": "self",
+   "href": "https://stac.test/emit/search?page=2"
+  }
+ ]
+}
