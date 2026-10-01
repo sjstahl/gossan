@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 PROJECT_FILE = "project.yaml"
 AOI_FILE = "aoi.gpkg"
@@ -24,6 +24,24 @@ class Module(StrEnum):
     REPORT = "report"
 
 
+class GeorefConfig(BaseModel):
+    """Settings for georeferencing scanned maps (``gossan digitize``, ``gossan ingest-points``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Reject a fit whose root-mean-square GCP error (metres) is above this.
+    rms_threshold_m: float = Field(default=15.0, gt=0)
+    #: Fewest GCPs the automatic step accepts (4 leaves one redundant, so the RMS means something).
+    min_gcps: int = Field(default=4, ge=3)
+    #: Datum printed on the maps' grid labels. Old ARIS maps are often NAD27; the labels are
+    #: read in this datum's UTM zone (the project's zone) and the result is reprojected.
+    datum: Literal["NAD83", "NAD27", "WGS84"] = "NAD83"
+    #: Explicit CRS of the grid labels (e.g. "EPSG:26910"); overrides datum + UTM zone.
+    gcp_crs: str | None = None
+    #: Resolution maps are rendered at for georeferencing.
+    dpi: int = Field(default=200, ge=72, le=600)
+
+
 class ProjectConfig(BaseModel):
     """Contents of a project's ``project.yaml``."""
 
@@ -35,6 +53,7 @@ class ProjectConfig(BaseModel):
     )
     aoi_path: str = Field(default=AOI_FILE, description="AOI path relative to the project folder.")
     modules: list[Module] = Field(default_factory=lambda: [Module.HARVEST, Module.REPORT])
+    georef: GeorefConfig = Field(default_factory=GeorefConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")

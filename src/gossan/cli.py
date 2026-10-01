@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
+import pymupdf
 import typer
 
 from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
@@ -14,14 +15,17 @@ from gossan.core.ingest import IngestError
 from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
+from gossan.core.raster import raster_path
 from gossan.digitize.catalogue import build_catalogue
 from gossan.digitize.claude_vision import ClaudeVisionError, model_name
 from gossan.digitize.claude_vision import (
     extract_scanned_tables as extract_scanned_tables_for,
 )
+from gossan.digitize.georef import georeference_map_page, map_output_name
 from gossan.digitize.inputs import select_pdfs
 from gossan.digitize.ocr import OcrUnavailableError, ocr_pages
 from gossan.digitize.pages import parse_pages
+from gossan.digitize.qgis_fallback import PointsError, parse_points
 from gossan.digitize.review import init_queue, read_queue, summarize
 from gossan.digitize.tables import extract_digital_tables
 from gossan.digitize.text import extract_text, page_ranges
@@ -277,6 +281,14 @@ def digitize_cmd(
     ocr: Annotated[
         bool, typer.Option("--ocr/--no-ocr", help="OCR pages with no embedded text (EasyOCR).")
     ] = True,
+    georef: Annotated[
+        bool,
+        typer.Option(
+            "--georef/--no-georef",
+            help="Try to georeference pages flagged as maps (needs a printed grid and, to read "
+            "its labels, EasyOCR). Fit limit: georef.rms_threshold_m in project.yaml.",
+        ),
+    ] = True,
 ) -> None:
     """Catalogue the downloaded ARIS PDFs, extract text and tables.
 
@@ -286,8 +298,12 @@ def digitize_cmd(
     and appended to the text file as [OCR EXTRACTED]. --target-pages limits the page-level
     steps to the pages you name. Scanned drillhole/assay tables are read by Claude only with
     --extract-scanned-tables, only on --target-pages, and never more than 25 pages per run;
-    every table it extracts is queued for human review ('gossan review'). Get PDFs first with
-    'gossan harvest --limit-pdfs N'. Unreadable PDFs are reported and skipped.
+    every table it extracts is queued for human review ('gossan review'). Pages flagged as
+    maps are georeferenced automatically when possible (OpenCV finds the grid, EasyOCR reads
+    its labels, GDAL fits and warps; the GeoTIFF goes to rasters/ and is queued for review).
+    Manual fallback when that fails: georeference the page image in QGIS and load the saved
+    points with 'gossan ingest-points'. Get PDFs first with 'gossan harvest --limit-pdfs N'.
+    Unreadable PDFs are reported and skipped.
     """
     proj = _open_project(project)
     if target_pages and report is None:
@@ -370,11 +386,102 @@ def digitize_cmd(
                 typer.secho(f"  warning: Claude failed on page {page}: {reason}", fg="yellow", err=True)
                 failed[number] = f"scanned-table extraction failed on page(s) {sorted(sc.failed)}"
 
+        map_pages = [p for p in (parse_pages(r.map_pages) if r.map_pages else []) if p in scope]
+        if georef and map_pages:
+            _georeference_maps(proj, number, pdf, map_pages)
+
     for number, reason in failed.items():
         typer.secho(f"Error: ARIS {number}: {reason}", fg="red", err=True)
     typer.echo(f"{n_done} report(s) processed, {len(failed)} failed; catalogue updated")
     if failed:
         raise typer.Exit(1)
+
+
+def _georeference_maps(proj: Project, number: int, pdf: Path, pages: list[int]) -> None:
+    """Run the automatic georeferencing on map pages, reporting each outcome."""
+    done = skipped = 0
+    for page in pages:
+        if raster_path(proj, map_output_name(number, page)).exists():
+            skipped += 1  # keep an existing (possibly manual, possibly reviewed) result
+            continue
+        res = georeference_map_page(proj, number, pdf, page)
+        if res.ok:
+            done += 1
+            typer.echo(
+                f"  map p.{page}: georeferenced, {res.n_gcps} GCPs, RMS {res.rms_m:.1f} m "
+                f"-> {res.output.relative_to(proj.root)} (queued for review)"
+            )
+        else:
+            typer.secho(f"  map p.{page}: not georeferenced: {res.reason}", fg="yellow", err=True)
+            where = f"digitize/maps/{number:05d}_p{page}.png"
+            hint = f"georeference {where} in QGIS, save the points, then: gossan ingest-points {proj.root} {number} {page} <file.points>"
+            if res.candidate_points:
+                hint = f"correct {res.candidate_points.relative_to(proj.root)} in QGIS (Layer > Georeferencer, open {where}), save, then: gossan ingest-points {proj.root} {number} {page} <file.points>"
+            typer.secho(f"    manual fallback: {hint}", fg="yellow", err=True)
+    typer.echo(f"  georeferencing: {done} done, {skipped} already done, {len(pages) - done - skipped} need the manual route")
+
+
+@app.command("ingest-points")
+def ingest_points_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+    report_id: Annotated[int, typer.Argument(help="ARIS number of the report.")],
+    page_num: Annotated[int, typer.Argument(help="Page number of the map in the PDF (1-based).")],
+    points_file: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="QGIS Georeferencer .points file."),
+    ],
+    image: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            help="The image the points were placed on, if not digitize/maps/<id>_p<N>.png.",
+        ),
+    ] = None,
+    rms_threshold: Annotated[
+        float | None,
+        typer.Option(
+            min=0.001,
+            help="Accept a fit up to this RMS (metres) for this map, instead of "
+            "georef.rms_threshold_m; recorded in provenance and the review note.",
+        ),
+    ] = None,
+) -> None:
+    """Georeference a map page from a QGIS .points file (manual fallback).
+
+    In QGIS (Layer > Georeferencer) open the page image digitize/maps/<id>_p<N>.png (made by
+    'gossan digitize', or by this command if absent), place at least 3 points (4 or more so the
+    fit can be checked), and use 'Save GCP Points'. The pixel positions in the file refer to
+    that image, so do not re-render or crop it. Map coordinates are read in the file's #CRS
+    (else the project's UTM zone in georef.datum). The fit is warped to a COG in rasters/,
+    checked against the RMS threshold, and queued for review.
+    """
+    proj = _open_project(project)
+    try:
+        pdfs = select_pdfs(proj, report_id)
+        points = parse_points(points_file)
+    except (FileNotFoundError, PointsError) as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    pdf = pdfs[report_id]
+    with pymupdf.open(pdf) as doc:
+        n_pages = doc.page_count
+    if not 1 <= page_num <= n_pages:
+        typer.secho(f"Error: page {page_num} is not in the PDF ({n_pages} pages)", fg="red", err=True)
+        raise typer.Exit(1)
+
+    res = georeference_map_page(
+        proj, report_id, pdf, page_num, points=points, image=image, rms_threshold_m=rms_threshold
+    )
+    for note in res.notes:
+        typer.echo(f"note: {note}")
+    if not res.ok:
+        typer.secho(f"Not georeferenced: {res.reason}", fg="red", err=True)
+        raise typer.Exit(1)
+    typer.echo(
+        f"Georeferenced ARIS {report_id} p.{page_num}: {res.n_gcps} GCPs, RMS {res.rms_m:.1f} m "
+        f"-> {res.output.relative_to(proj.root)} (queued for review)"
+    )
 
 
 @app.command()

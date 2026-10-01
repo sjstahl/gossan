@@ -39,14 +39,16 @@ def page_image_path(project: Project, aris_number: int, page: int) -> Path:
     return project.root / "digitize" / "pages" / f"{aris_number:05d}_p{page}.png"
 
 
-def render_page(pdf: Path, page: int, dest: Path, dpi: int = DEFAULT_DPI) -> Path:
+def render_page(
+    pdf: Path, page: int, dest: Path, dpi: int = DEFAULT_DPI, max_side: int = MAX_SIDE_PX
+) -> Path:
     """Render 1-based ``page`` of ``pdf`` to a PNG at ``dest`` (parent folders are created)."""
     with pymupdf.open(pdf) as doc:
         pg = doc[page - 1]
         scale = dpi / 72
         longest = max(pg.rect.width, pg.rect.height) * scale
-        if longest > MAX_SIDE_PX:
-            scale *= MAX_SIDE_PX / longest
+        if longest > max_side:
+            scale *= max_side / longest
         pix = pg.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
     dest.parent.mkdir(parents=True, exist_ok=True)
     pix.save(dest)

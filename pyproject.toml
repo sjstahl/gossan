@@ -22,6 +22,8 @@ dependencies = [
     "pymupdf",
     "pdfplumber",
     "anthropic",
+    "opencv-python-headless",
+    "pyproj",
 ]
 
 [project.optional-dependencies]
@@ -41,4 +43,7 @@ src = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # affine/rasterio emit this on every raster operation; it is third-party noise
-filterwarnings = ["ignore::PendingDeprecationWarning"]
+filterwarnings = [
+    "ignore::PendingDeprecationWarning",
+    "ignore::rasterio.errors.NotGeoreferencedWarning",  # test images are plain, unreferenced rasters
+]
