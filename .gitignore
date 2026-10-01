@@ -1,4 +1,4 @@
-﻿# Python environments and caches
+# Python environments and caches
 .venv/
 venv/
 env/

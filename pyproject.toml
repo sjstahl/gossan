@@ -1,4 +1,4 @@
-﻿[build-system]
+[build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
@@ -10,7 +10,17 @@ requires-python = ">=3.11"
 dependencies = [
     "typer",
     "pydantic",
+    "pyyaml",
+    "geopandas",
+    "shapely",
+    "pyogrio",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+gossan = "gossan.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gossan"]
