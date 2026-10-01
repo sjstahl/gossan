@@ -18,6 +18,8 @@ dependencies = [
     "rioxarray",
     "python-docx",
     "matplotlib",
+    # AGPL-3.0 / commercial dual licence (flagged for review; fine for internal use)
+    "pymupdf",
 ]
 
 [project.optional-dependencies]

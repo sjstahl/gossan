@@ -14,6 +14,10 @@ from gossan.core.ingest import IngestError
 from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
+from gossan.digitize.catalogue import build_catalogue
+from gossan.digitize.inputs import select_pdfs
+from gossan.digitize.review import init_queue, read_queue, summarize
+from gossan.digitize.text import extract_text, page_ranges
 from gossan.harvest import CONNECTORS
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
 from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
@@ -237,6 +241,78 @@ def report(
     proj = _open_project(project)
     path = build_report(proj)
     typer.echo(f"Wrote {path}")
+
+
+@app.command("digitize")
+def digitize_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder with downloaded ARIS PDFs.")],
+    report: Annotated[
+        int | None,
+        typer.Option("--report", help="ARIS number to process. Default: every PDF in raw/aris_pdfs."),
+    ] = None,
+) -> None:
+    """Catalogue the downloaded ARIS PDFs and extract their embedded text.
+
+    Writes the 'catalogue' layer to data.gpkg (pages, likely map pages, text coverage) and
+    digitize/text/<aris_id>.txt per report, and sets up digitize/review_queue.csv. Pages
+    with no embedded text (scans) are reported but not OCR'd yet. Get PDFs first with
+    'gossan harvest --limit-pdfs N'. PDFs that cannot be read are reported and skipped.
+    """
+    proj = _open_project(project)
+    try:
+        pdfs = select_pdfs(proj, report)
+    except FileNotFoundError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+
+    init_queue(proj)
+    rows, failed = build_catalogue(proj, pdfs)
+    facts = {int(r.aris_number): r for r in rows.itertuples()}
+    n_done = 0
+    for number, pdf in pdfs.items():
+        if number in failed:
+            continue
+        try:
+            result = extract_text(proj, number, pdf)
+        except (RuntimeError, ValueError, OSError) as e:
+            failed[number] = str(e)
+            continue
+        n_done += 1
+        r = facts[number]
+        typer.echo(
+            f"ARIS {number}: {r.pages} page(s), {r.n_map_pages} likely map page(s), "
+            f"text -> {result.path.relative_to(proj.root)}"
+        )
+        if result.no_text_pages:
+            typer.secho(
+                f"  warning: ARIS {number}: no embedded text on page(s) "
+                f"{page_ranges(result.no_text_pages)} (scanned? OCR is not implemented yet)",
+                fg="yellow",
+                err=True,
+            )
+    for number, reason in failed.items():
+        typer.secho(f"Error: ARIS {number}: {reason}", fg="red", err=True)
+    typer.echo(f"{n_done} report(s) processed, {len(failed)} failed; catalogue updated")
+    if failed:
+        raise typer.Exit(1)
+
+
+@app.command()
+def review(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+) -> None:
+    """Summarise the items waiting for human review (digitize/review_queue.csv)."""
+    proj = _open_project(project)
+    items = read_queue(proj)
+    pending = [i for i in items if i.status == "PENDING"]
+    if not pending:
+        typer.echo("No items pending review.")
+        return
+    counts = ", ".join(f"{n} {t}" for t, n in sorted(summarize(items)["PENDING"].items()))
+    typer.echo(f"{len(pending)} item(s) pending review ({counts})")
+    for i in pending:
+        where = f" p.{i.page}" if i.page else ""
+        typer.echo(f"  {i.item_id}  {i.type:<5}  ARIS {i.report}{where}  {i.source}  {i.note}".rstrip())
 
 
 @leads_app.command("run")
