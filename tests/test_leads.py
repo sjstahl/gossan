@@ -184,7 +184,14 @@ def test_pack_lists_property_and_reports(project):
 
     record = project.provenance.read()[-1]
     assert record.operation == "build_lead_pack"
-    assert record.parameters == {"lead_id": "1002", "n_reports": 4}
+    assert record.parameters == {
+        "lead_id": "1002",
+        "n_reports": 4,
+        "n_approved_maps": 0,
+        "n_approved_tables": 0,
+        "n_pending_items": 0,
+    }
+    assert "No approved digitized samples yet" in text
 
 
 def test_pack_for_lead_without_reports(project):

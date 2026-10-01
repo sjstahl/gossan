@@ -1,9 +1,10 @@
-"""Sample pack skeleton: a one-property summary of a lead and the reports available.
+"""Sample pack: a one-property summary of a lead, the reports available, and before/after
+samples of what digitizing them produced.
 
-This is a stub for the Phase 4 pitch pack. It lists what exists (from the tenure and the
-ARIS index) and whether each report PDF is already in ``raw/aris_pdfs/``. It does not
-open the PDFs: text, table and image extraction, and the before/after samples, belong to
-the ``digitize`` module.
+It lists what exists (from the tenure and the ARIS index) and whether each report PDF is
+already in ``raw/aris_pdfs/``. If the property has digitized maps or tables that a person has
+APPROVED in the review queue, a "Before & After" section shows each beside its scan (see
+``samples``). It never reads PDFs itself: that is the ``digitize`` module's job.
 
 ARIS is Access Only, so the pack is marked internal; get the Province's permission
 before sending anything derived from ARIS to a prospect.
@@ -20,6 +21,7 @@ from docx import Document
 from gossan.core.project import Project
 from gossan.harvest.bc.aris_pdf import RAW_DIR as ARIS_PDF_DIR
 from gossan.leads.generator import DERIVED_LICENSE, LEADS_LAYER
+from gossan.leads.samples import add_before_after
 from gossan.leads.scoring import ARIS_LAYER, MissingLayerError, read_layer
 
 
@@ -101,14 +103,22 @@ def build_pack(project: Project, lead_id: str) -> Path:
             for cell, value in zip(row, values, strict=True):
                 cell.text = "" if pd.isna(value) else str(value)
 
+    path = project.outputs_dir / f"lead_{lead['lead_id']}_pack.docx"
+    report_numbers = {str(int(n)) for n in reports["ARIS_NUMBER"]}
+    samples = add_before_after(
+        doc, project, lead.geometry, report_numbers, project.outputs_dir / f"{path.stem}_assets"
+    )
+
     doc.add_heading("Next steps", level=1)
     doc.add_paragraph(
-        "Pick two or three reports with maps or drill tables for a before/after sample "
-        "(digitization is not part of this pack yet)."
+        "Approved samples above come from reports a person has checked. To add more, digitize "
+        "further maps or tables from the reports listed and approve them with 'gossan review'."
+        if samples.n_maps + samples.n_tables
+        else "Pick two or three reports with maps or drill tables, run 'gossan digitize' on them "
+        "and approve the results with 'gossan review' to fill the Before & After section."
     )
 
     project.outputs_dir.mkdir(exist_ok=True)
-    path = project.outputs_dir / f"lead_{lead['lead_id']}_pack.docx"
     doc.save(path)
     project.provenance.log(
         dataset="lead_pack",
@@ -117,6 +127,12 @@ def build_pack(project: Project, lead_id: str) -> Path:
         url=None,
         license=DERIVED_LICENSE,
         operation="build_lead_pack",
-        parameters={"lead_id": str(lead["lead_id"]), "n_reports": len(reports)},
+        parameters={
+            "lead_id": str(lead["lead_id"]),
+            "n_reports": len(reports),
+            "n_approved_maps": samples.n_maps,
+            "n_approved_tables": samples.n_tables,
+            "n_pending_items": samples.n_pending,
+        },
     )
     return path

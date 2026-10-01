@@ -1,8 +1,10 @@
 """Review queue: things a person must check before they enter the project data.
 
 A plain CSV, ``digitize/review_queue.csv``, so it can be opened in a spreadsheet and
-diffed. Nothing is added to it automatically yet; later pipeline steps (OCR text, tables,
-georeferenced maps) will call ``add_item`` and a reviewer will move items out of PENDING.
+diffed. Pipeline steps add items as PENDING (Claude-read tables, georeferenced maps); a person
+moves each to APPROVED or REJECTED with ``set_status`` (``gossan review approve|reject``).
+Every decision is logged to provenance with who made it. A decided item is final: it cannot
+be flipped, because an approved table may already be in the drillhole tables.
 """
 
 from __future__ import annotations
@@ -41,6 +43,9 @@ class ReviewItem:
     source: str  # file to review (e.g. the extracted CSV), relative to the project folder
     note: str
     image: str = ""  # page image to review it against, relative to the project folder
+    reviewed_at: str = ""
+    reviewed_by: str = ""
+    decision_note: str = ""
 
 
 COLUMNS = [f.name for f in fields(ReviewItem)]
@@ -134,3 +139,73 @@ def summarize(items: list[ReviewItem]) -> dict[str, dict[str, int]]:
         by_type = out.setdefault(i.status, {})
         by_type[i.type] = by_type.get(i.type, 0) + 1
     return out
+
+
+class ReviewError(Exception):
+    """A review action cannot be done; the message says why."""
+
+
+def get_item(project: Project, item_id: str) -> ReviewItem:
+    for item in read_queue(project):
+        if item.item_id == item_id:
+            return item
+    raise ReviewError(f"no review item {item_id!r}; see 'gossan review list'")
+
+
+def approved_items(project: Project, reports: set[str] | None = None) -> list[ReviewItem]:
+    """APPROVED items, optionally only for the given ARIS numbers (as strings)."""
+    return [
+        i
+        for i in read_queue(project)
+        if i.status == Status.APPROVED and (reports is None or i.report in reports)
+    ]
+
+
+def set_status(
+    project: Project,
+    item_id: str,
+    status: Status,
+    *,
+    by: str,
+    note: str = "",
+    details: dict[str, object] | None = None,
+) -> ReviewItem:
+    """Move a PENDING item to APPROVED or REJECTED, recording who decided and when.
+
+    ``details`` (for example what was loaded into the database) goes into the provenance
+    record. Raises ``ReviewError`` for an unknown or already decided item.
+    """
+    if status not in (Status.APPROVED, Status.REJECTED):
+        raise ReviewError(f"cannot set status {status}")
+    items = read_queue(project)
+    target = next((i for i in items if i.item_id == item_id), None)
+    if target is None:
+        raise ReviewError(f"no review item {item_id!r}; see 'gossan review list'")
+    if target.status != Status.PENDING:
+        raise ReviewError(f"{item_id} is already {target.status}; decisions are final")
+    previous = target.status
+    target.status = status.value
+    target.reviewed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    target.reviewed_by = by
+    target.decision_note = note
+    _write_all(queue_path(project), items)
+    project.provenance.log(
+        dataset="review_queue",
+        source="manual review",
+        identifier=item_id,
+        url=None,
+        retrieved_at=datetime.now(UTC),
+        license="N/A (workflow record)",
+        operation="review_approve" if status == Status.APPROVED else "review_reject",
+        parameters={
+            "type": target.type,
+            "report": target.report,
+            "page": target.page,
+            "source": target.source,
+            "previous_status": previous,
+            "reviewed_by": by,
+            "decision_note": note,
+            **(details or {}),
+        },
+    )
+    return target

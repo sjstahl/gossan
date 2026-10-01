@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import getpass
 from datetime import date
 from pathlib import Path
 from typing import Annotated
 
 import pymupdf
 import typer
+from typer.core import TyperGroup
 
 from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
 from gossan.core.config import AOI_FILE, ProjectConfig
@@ -21,12 +23,21 @@ from gossan.digitize.claude_vision import ClaudeVisionError, model_name
 from gossan.digitize.claude_vision import (
     extract_scanned_tables as extract_scanned_tables_for,
 )
+from gossan.digitize.db import DrillholeDbError, load_approved_table
 from gossan.digitize.georef import georeference_map_page, map_output_name
 from gossan.digitize.inputs import select_pdfs
 from gossan.digitize.ocr import OcrUnavailableError, ocr_pages
 from gossan.digitize.pages import parse_pages
 from gossan.digitize.qgis_fallback import PointsError, parse_points
-from gossan.digitize.review import init_queue, read_queue, summarize
+from gossan.digitize.review import (
+    ReviewError,
+    Status,
+    get_item,
+    init_queue,
+    read_queue,
+    set_status,
+    summarize,
+)
 from gossan.digitize.tables import extract_digital_tables
 from gossan.digitize.text import extract_text, page_ranges
 from gossan.harvest import CONNECTORS
@@ -484,10 +495,32 @@ def ingest_points_cmd(
     )
 
 
-@app.command()
-def review(
-    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
-) -> None:
+class _ReviewGroup(TyperGroup):
+    """`gossan review <project>` keeps working as `gossan review list <project>`."""
+
+    def resolve_command(self, ctx, args):
+        if args and args[0] not in self.commands and not args[0].startswith("-"):
+            args = ["list", *args]
+        return super().resolve_command(ctx, args)
+
+
+review_app = typer.Typer(
+    cls=_ReviewGroup,
+    help="Review what the pipeline extracted: list, approve or reject queue items.",
+    no_args_is_help=True,
+)
+app.add_typer(review_app, name="review")
+
+_Project = Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")]
+_ItemId = Annotated[str, typer.Argument(help="Review item id, e.g. R0003 (see 'gossan review list').")]
+_By = Annotated[
+    str, typer.Option("--by", help="Who is deciding, for the record. Default: your login name.")
+]
+_Note = Annotated[str, typer.Option("--note", help="Why (kept in the queue and provenance).")]
+
+
+@review_app.command("list")
+def review_list(project: _Project) -> None:
     """Summarise the items waiting for human review (digitize/review_queue.csv)."""
     proj = _open_project(project)
     items = read_queue(proj)
@@ -502,6 +535,59 @@ def review(
         typer.echo(f"  {i.item_id}  {i.type:<5}  ARIS {i.report}{where}  {i.source}  {i.note}".rstrip())
         if i.image:
             typer.echo(f"         image: {i.image}")
+
+
+@review_app.command("approve")
+def review_approve(
+    project: _Project, item_id: _ItemId, by: _By = "", note: _Note = ""
+) -> None:
+    """Approve a PENDING item; an approved table is loaded into the drillhole tables.
+
+    Check the item first against its page image (see 'gossan review list'); for a table,
+    correct the CSV before approving: it is read at this moment. The CSV must have hole_id,
+    from_m and to_m columns, with depths numeric (or both empty for a surface sample), and no
+    '?' cells left. If validation fails nothing is loaded and the item stays PENDING. Maps and
+    text items are only marked. The decision is final and logged to provenance.
+    """
+    proj = _open_project(project)
+    by = by or getpass.getuser()
+    details: dict[str, object] = {}
+    try:
+        item = get_item(proj, item_id)
+        if item.status != "PENDING":
+            raise ReviewError(f"{item_id} is already {item.status}; decisions are final")
+        message = f"Approved {item_id} ({item.type}, ARIS {item.report}" + (f" p.{item.page})" if item.page else ")")
+        if item.type == "table":
+            loaded = load_approved_table(proj, item, by)
+            details = {
+                "loaded_into": loaded.table,
+                "records": loaded.n_records,
+                "csv_sha256": loaded.csv_sha256,
+            }
+            message += (
+                f": {loaded.n_rows} row(s) -> {loaded.n_records} record(s) in the {loaded.table} table"
+            )
+            if loaded.n_no_interval:
+                message += f" ({loaded.n_no_interval} row(s) have no depth interval: surface samples)"
+        set_status(proj, item_id, Status.APPROVED, by=by, note=note, details=details)
+    except (ReviewError, DrillholeDbError) as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    typer.echo(message)
+
+
+@review_app.command("reject")
+def review_reject(
+    project: _Project, item_id: _ItemId, by: _By = "", note: _Note = ""
+) -> None:
+    """Reject a PENDING item; nothing is loaded. The decision is final and logged."""
+    proj = _open_project(project)
+    try:
+        item = set_status(proj, item_id, Status.REJECTED, by=by or getpass.getuser(), note=note)
+    except ReviewError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    typer.echo(f"Rejected {item.item_id} ({item.type}, ARIS {item.report})")
 
 
 @leads_app.command("run")
