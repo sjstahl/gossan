@@ -38,8 +38,9 @@ class ReviewItem:
     type: str
     page: str  # page number or range, blank if the item is the whole report
     status: str
-    source: str  # file to look at, relative to the project folder
+    source: str  # file to review (e.g. the extracted CSV), relative to the project folder
     note: str
+    image: str = ""  # page image to review it against, relative to the project folder
 
 
 COLUMNS = [f.name for f in fields(ReviewItem)]
@@ -50,13 +51,27 @@ def queue_path(project: Project) -> Path:
 
 
 def init_queue(project: Project) -> Path:
-    """Create the queue file with its header if it does not exist yet; never overwrites."""
+    """Create the queue file with its header if it does not exist yet.
+
+    Never discards items; a queue written with an older set of columns is upgraded in place.
+    """
     path = queue_path(project)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8", newline="") as f:
-            csv.writer(f).writerow(COLUMNS)
+        _write_all(path, [])
+    else:
+        with path.open(encoding="utf-8", newline="") as f:
+            header = next(csv.reader(f), [])
+        if header != COLUMNS:
+            _write_all(path, read_queue(project))
     return path
+
+
+def _write_all(path: Path, items: list[ReviewItem]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        writer.writeheader()
+        writer.writerows(asdict(i) for i in items)
 
 
 def read_queue(project: Project) -> list[ReviewItem]:
@@ -65,7 +80,7 @@ def read_queue(project: Project) -> list[ReviewItem]:
     if not path.exists():
         return []
     with path.open(encoding="utf-8", newline="") as f:
-        return [ReviewItem(**row) for row in csv.DictReader(f)]
+        return [ReviewItem(**{c: row.get(c) or "" for c in COLUMNS}) for row in csv.DictReader(f)]
 
 
 def add_item(
@@ -76,6 +91,7 @@ def add_item(
     page: int | str = "",
     source: str = "",
     note: str = "",
+    image: str = "",
 ) -> ReviewItem | None:
     """Append a PENDING item; returns None if an identical PENDING item is already queued."""
     item_type = ItemType(item_type)  # rejects unknown types
@@ -95,6 +111,7 @@ def add_item(
         status=Status.PENDING.value,
         source=source,
         note=note,
+        image=image,
     )
     with path.open("a", encoding="utf-8", newline="") as f:
         csv.DictWriter(f, fieldnames=COLUMNS).writerow(asdict(item))

@@ -15,8 +15,15 @@ from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
 from gossan.digitize.catalogue import build_catalogue
+from gossan.digitize.claude_vision import ClaudeVisionError, model_name
+from gossan.digitize.claude_vision import (
+    extract_scanned_tables as extract_scanned_tables_for,
+)
 from gossan.digitize.inputs import select_pdfs
+from gossan.digitize.ocr import OcrUnavailableError, ocr_pages
+from gossan.digitize.pages import parse_pages
 from gossan.digitize.review import init_queue, read_queue, summarize
+from gossan.digitize.tables import extract_digital_tables
 from gossan.digitize.text import extract_text, page_ranges
 from gossan.harvest import CONNECTORS
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
@@ -250,15 +257,47 @@ def digitize_cmd(
         int | None,
         typer.Option("--report", help="ARIS number to process. Default: every PDF in raw/aris_pdfs."),
     ] = None,
+    target_pages: Annotated[
+        str | None,
+        typer.Option(
+            "--target-pages",
+            help="Pages to limit OCR, table extraction and Claude calls to, e.g. '43-47' or "
+            "'3, 43-47'. Needs --report.",
+        ),
+    ] = None,
+    extract_scanned_tables: Annotated[
+        bool,
+        typer.Option(
+            "--extract-scanned-tables",
+            help="Send the --target-pages page images to Claude (Anthropic API: costs money, "
+            "needs ANTHROPIC_API_KEY) to read drillhole/assay tables. Results go to "
+            "digitize/tables/scanned/ and the review queue as PENDING.",
+        ),
+    ] = False,
+    ocr: Annotated[
+        bool, typer.Option("--ocr/--no-ocr", help="OCR pages with no embedded text (EasyOCR).")
+    ] = True,
 ) -> None:
-    """Catalogue the downloaded ARIS PDFs and extract their embedded text.
+    """Catalogue the downloaded ARIS PDFs, extract text and tables.
 
-    Writes the 'catalogue' layer to data.gpkg (pages, likely map pages, text coverage) and
-    digitize/text/<aris_id>.txt per report, and sets up digitize/review_queue.csv. Pages
-    with no embedded text (scans) are reported but not OCR'd yet. Get PDFs first with
-    'gossan harvest --limit-pdfs N'. PDFs that cannot be read are reported and skipped.
+    Always: the 'catalogue' layer in data.gpkg, digitize/text/<aris_id>.txt, and digital
+    tables (pdfplumber) in digitize/tables/digital/. Pages with no embedded text are OCR'd
+    with EasyOCR (an optional install, the "ocr" extra; skipped with a warning if missing)
+    and appended to the text file as [OCR EXTRACTED]. --target-pages limits the page-level
+    steps to the pages you name. Scanned drillhole/assay tables are read by Claude only with
+    --extract-scanned-tables, only on --target-pages, and never more than 25 pages per run;
+    every table it extracts is queued for human review ('gossan review'). Get PDFs first with
+    'gossan harvest --limit-pdfs N'. Unreadable PDFs are reported and skipped.
     """
     proj = _open_project(project)
+    if target_pages and report is None:
+        raise typer.BadParameter("page numbers only make sense for one report", param_hint="--target-pages")
+    if extract_scanned_tables and not target_pages:
+        raise typer.BadParameter(
+            "name the pages to send to Claude, e.g. --target-pages 43-47 "
+            "(the whole document is never sent by default)",
+            param_hint="--extract-scanned-tables",
+        )
     try:
         pdfs = select_pdfs(proj, report)
     except FileNotFoundError as e:
@@ -268,9 +307,15 @@ def digitize_cmd(
     init_queue(proj)
     rows, failed = build_catalogue(proj, pdfs)
     facts = {int(r.aris_number): r for r in rows.itertuples()}
+    ocr_missing = False
     n_done = 0
     for number, pdf in pdfs.items():
         if number in failed:
+            continue
+        try:
+            targets = parse_pages(target_pages, facts[number].pages) if target_pages else None
+        except ValueError as e:
+            failed[number] = str(e)
             continue
         try:
             result = extract_text(proj, number, pdf)
@@ -286,10 +331,45 @@ def digitize_cmd(
         if result.no_text_pages:
             typer.secho(
                 f"  warning: ARIS {number}: no embedded text on page(s) "
-                f"{page_ranges(result.no_text_pages)} (scanned? OCR is not implemented yet)",
+                f"{page_ranges(result.no_text_pages)} (scanned)",
                 fg="yellow",
                 err=True,
             )
+
+        scope = set(targets) if targets else set(range(1, r.pages + 1))
+        scanned = [p for p in result.no_text_pages if p in scope]
+        if ocr and scanned and not ocr_missing:
+            try:
+                done = ocr_pages(proj, number, pdf, scanned)
+                typer.echo(
+                    f"  OCR: {len(done.pages_done)} page(s) appended"
+                    + (f", {len(done.pages_skipped)} already done" if done.pages_skipped else "")
+                )
+            except OcrUnavailableError as e:
+                ocr_missing = True
+                typer.secho(f"  warning: {e}", fg="yellow", err=True)
+
+        with_text = sorted(scope - set(result.no_text_pages))
+        tables = extract_digital_tables(proj, number, pdf, with_text)
+        typer.echo(f"  digital tables: {len(tables.files)} file(s) from {len(with_text)} text page(s)")
+        for page, reason in tables.errors.items():
+            typer.secho(f"  warning: table extraction failed on page {page}: {reason}", fg="yellow", err=True)
+
+        if extract_scanned_tables:
+            try:
+                sc = extract_scanned_tables_for(proj, number, pdf, targets or [])
+            except ClaudeVisionError as e:
+                typer.secho(f"Error: {e}", fg="red", err=True)
+                raise typer.Exit(1) from e
+            typer.echo(
+                f"  Claude ({model_name()}): {len(sc.written)} table(s) queued for review, "
+                f"{len(sc.no_table)} page(s) without a table, {len(sc.already_done)} already "
+                f"extracted, {len(sc.failed)} failed; {sc.input_tokens} in / {sc.output_tokens} out tokens"
+            )
+            for page, reason in sc.failed.items():
+                typer.secho(f"  warning: Claude failed on page {page}: {reason}", fg="yellow", err=True)
+                failed[number] = f"scanned-table extraction failed on page(s) {sorted(sc.failed)}"
+
     for number, reason in failed.items():
         typer.secho(f"Error: ARIS {number}: {reason}", fg="red", err=True)
     typer.echo(f"{n_done} report(s) processed, {len(failed)} failed; catalogue updated")
@@ -313,6 +393,8 @@ def review(
     for i in pending:
         where = f" p.{i.page}" if i.page else ""
         typer.echo(f"  {i.item_id}  {i.type:<5}  ARIS {i.report}{where}  {i.source}  {i.note}".rstrip())
+        if i.image:
+            typer.echo(f"         image: {i.image}")
 
 
 @leads_app.command("run")

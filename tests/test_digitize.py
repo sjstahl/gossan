@@ -178,7 +178,7 @@ def test_digitize_catalogues_and_extracts_text(project, sample_pdf, wfs):
     texts = [r for r in records if r.operation == "extract_text"]
     assert sorted(r.identifier for r in texts) == ["ARIS 123", "ARIS 8038"]
     assert texts[0].parameters["pages_without_text"] == [2]
-    assert texts[0].parameters["ocr"] is False
+    assert texts[0].parameters["ocr_pages_kept"] == []
     assert "Access Only" in texts[0].license
     (cat_rec,) = [r for r in records if r.operation == "write_catalogue"]
     assert cat_rec.parameters["reports_updated"] == [123, 8038]
