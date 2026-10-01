@@ -9,6 +9,7 @@ import typer
 
 from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
 from gossan.core.config import AOI_FILE, ProjectConfig
+from gossan.core.ingest import IngestError, ingest_vector
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
 from gossan.harvest import CONNECTORS
@@ -109,16 +110,22 @@ def _open_project(path: Path) -> Project:
 def harvest(
     project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
     source: Annotated[
-        str,
-        typer.Option(help=f"Comma-separated sources to harvest. Available: {', '.join(CONNECTORS)}."),
-    ] = "minfile",
+        str | None,
+        typer.Option(
+            help="Comma-separated sources to harvest. "
+            f"Available: {', '.join(CONNECTORS)}. Default: all."
+        ),
+    ] = None,
 ) -> None:
     """Download public data for the project AOI into data.gpkg.
 
     Originals are kept in raw/ and every retrieval is logged to provenance.jsonl.
+
+    Manual fallback: if a source is unavailable, download the data yourself and load
+    it with 'gossan ingest'.
     """
     proj = _open_project(project)
-    names = [s.strip() for s in source.split(",") if s.strip()]
+    names = [s.strip() for s in source.split(",") if s.strip()] if source else list(CONNECTORS)
     unknown = [n for n in names if n not in CONNECTORS]
     if unknown:
         raise typer.BadParameter(f"unknown source(s): {', '.join(unknown)}", param_hint="--source")
@@ -127,8 +134,43 @@ def harvest(
             count = CONNECTORS[n](proj).run()
         except OSError as e:  # network failures (URLError is an OSError)
             typer.secho(f"Error: {n}: {e}", fg="red", err=True)
+            typer.echo("Fallback: download the data manually and use 'gossan ingest'.", err=True)
             raise typer.Exit(1) from e
         typer.echo(f"{n}: {count} feature(s) written to data.gpkg")
+
+
+@app.command()
+def ingest(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+    file_path: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, readable=True, help="Local vector file.")
+    ],
+    layer: Annotated[str, typer.Option("--layer", help="Layer name to write in data.gpkg.")],
+    source: Annotated[
+        str, typer.Option(help="Who supplied the data, for provenance and the report.")
+    ] = "user-supplied",
+    license: Annotated[
+        str, typer.Option(help="Licence or terms of the data, for provenance and the report.")
+    ] = "unspecified (user-supplied)",
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Replace the layer if it already exists.")
+    ] = False,
+) -> None:
+    """Load a local vector file (shp, geojson, gpkg, ...) into data.gpkg.
+
+    The file is reprojected to the project CRS and clipped to the AOI. A copy of the
+    original goes to raw/ingest/ and the ingest is logged to provenance.jsonl. This is
+    the manual fallback for any harvest source. The file must have a CRS defined.
+    """
+    proj = _open_project(project)
+    try:
+        count = ingest_vector(
+            proj, file_path, layer, source=source, license=license, overwrite=overwrite
+        )
+    except IngestError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    typer.echo(f"{layer}: {count} feature(s) written to data.gpkg")
 
 
 @app.command()

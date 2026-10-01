@@ -16,14 +16,14 @@ def make_project(aoi_file) -> Project:
     return Project(Path("demo"))
 
 
-def test_harvest_minfile(aoi_file, wfs_calls):
+def test_harvest_minfile(aoi_file, wfs):
     project = make_project(aoi_file)
     result = runner.invoke(app, ["harvest", "demo", "--source", "minfile"])
     assert result.exit_code == 0, result.output
 
     # Request: right layer, bbox filter around the AOI, no live network.
-    assert len(wfs_calls) == 1
-    query = parse_qs(urlparse(wfs_calls[0]).query)
+    assert len(wfs.calls) == 1
+    query = parse_qs(urlparse(wfs.calls[0]).query)
     assert query["typeNames"] == ["pub:WHSE_MINERAL_TENURE.MINFIL_MINERAL_FILE"]
     assert query["CQL_FILTER"][0].startswith("BBOX(SHAPE,-120.320000,50.700000")
 
@@ -44,13 +44,10 @@ def test_harvest_minfile(aoi_file, wfs_calls):
     assert write.parameters["n_features"] == 2
 
 
-def test_harvest_twice_keeps_all_originals(aoi_file, wfs_calls, monkeypatch):
+def test_harvest_twice_keeps_all_originals(aoi_file, wfs):
     project = make_project(aoi_file)
     runner.invoke(app, ["harvest", "demo"])
     first = list((project.raw_dir / "minfile").glob("*.geojson"))
-    import time
-
-    time.sleep(1.1)  # file names carry a one-second timestamp
     runner.invoke(app, ["harvest", "demo"])
     assert len(list((project.raw_dir / "minfile").glob("*.geojson"))) == len(first) + 1
 

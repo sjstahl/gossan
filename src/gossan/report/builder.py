@@ -80,10 +80,10 @@ def make_map(project: Project) -> Path:
 
 
 def data_sources(records: list[ProvenanceRecord]) -> list[ProvenanceRecord]:
-    """Latest retrieval per (dataset, identifier), from ``fetch`` records only."""
+    """Latest retrieval per (dataset, identifier), from fetched or manually ingested data."""
     latest: dict[tuple[str, str], ProvenanceRecord] = {}
     for r in records:
-        if r.operation != "fetch":
+        if r.operation not in {"fetch", "manual_ingest"}:
             continue
         key = (r.dataset, r.identifier)
         if key not in latest or r.retrieved_at >= latest[key].retrieved_at:

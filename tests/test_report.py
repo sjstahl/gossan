@@ -9,7 +9,7 @@ from gossan.core.project import Project
 runner = CliRunner()
 
 
-def test_phase1_done_when(aoi_file, wfs_calls):
+def test_phase1_done_when(aoi_file, wfs):
     """A claim polygon produces a project folder and a Word report with a MINFILE map and data sources."""
     assert runner.invoke(app, ["new", "demo", "--aoi", str(aoi_file)]).exit_code == 0
     assert runner.invoke(app, ["harvest", "demo"]).exit_code == 0
