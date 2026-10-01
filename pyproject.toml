@@ -1,0 +1,22 @@
+﻿[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gossan"
+version = "0.1.0"
+description = "Internal tool for SJS Geospatial Analytics: claim polygons and legacy files to client-ready deliverables."
+requires-python = ">=3.11"
+dependencies = [
+    "typer",
+    "pydantic",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gossan"]
+
+[tool.ruff]
+src = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

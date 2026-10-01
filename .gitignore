@@ -1,0 +1,36 @@
+﻿# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.env
+
+# Geospatial data (allowed only under tests/fixtures/)
+*.gpkg
+*.gpkg-wal
+*.gpkg-shm
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.sbn
+*.sbx
+*.qix
+*.geojson
+*.tif
+*.tiff
+*.kml
+*.kmz
+*.gdb/
+!tests/fixtures/**
+
+# Generated client project folders (see CLAUDE.md: keep client data local)
+projects/
