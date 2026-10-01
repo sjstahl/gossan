@@ -1,0 +1,610 @@
+"""The pitch pack: an executive-summary PDF assembled from everything the project holds.
+
+Sections, each shown only with what exists (a missing one says which command produces it):
+
+1. Executive summary: the headline numbers from every phase, and the caveats that go with them.
+2. Property and tenure: overview map, tenure summary, the harvested data inventory.
+3. Lead scoring: the ranked leads (``gossan leads run``), and a featured lead with its ARIS reports
+   when ``lead_id`` is given.
+4. Prospectivity targeting (``gossan target``): the probability-style score map with the
+   top-percentile target polygons and known occurrences, the uncertainty map, the target list,
+   feature importance and spatial cross-validation tables, and how to read them.
+5. Before & After: maps and tables a person has APPROVED in the review queue, beside their scans.
+6. Data sources and provenance, and licence notices.
+
+Every page carries the internal marking, and the first page the full disclaimer: the document
+includes data from the BC Assessment Report Indexing System (ARIS), which the Province publishes
+as Access Only, so it must not go to a client or third party without written permission.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+import geopandas as gpd
+import pandas as pd
+import pymupdf
+from PIL import Image as PILImage
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    Image,
+    KeepTogether,
+    ListFlowable,
+    ListItem,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+from gossan import __version__
+from gossan.core.project import Project
+from gossan.leads.generator import DERIVED_LICENSE
+from gossan.leads.pack import reports_for_lead
+from gossan.leads.samples import SampleEntry, collect_samples
+from gossan.report.assets import finite_range, layer_or_none, overview_map, raster_map
+from gossan.report.builder import data_sources
+
+PDF_NAME = "report.pdf"
+ASSETS_DIR = "report_assets"
+PAGE_W, PAGE_H = letter
+MARGIN = 0.75 * inch
+CONTENT_W = PAGE_W - 2 * MARGIN
+
+DISCLAIMER = (
+    "<b>INTERNAL DRAFT - NOT FOR DISTRIBUTION.</b> This document contains data from the BC "
+    "Assessment Report Indexing System (ARIS), which the Province of British Columbia publishes "
+    "as <b>Access Only</b>: it may not be reproduced or redistributed without the Province's "
+    "written permission. Do not send this document, or anything taken from it, to a client, "
+    "prospect or other third party until that permission is in hand and a geologist has reviewed "
+    "it. Scores, maps and extracted tables are machine-generated aids, not geological "
+    "interpretation."
+)
+FOOTER = "INTERNAL DRAFT | Contains ARIS data (Access Only): not for distribution"
+
+LICENCE_NOTICES = {
+    "Open Government Licence - British Columbia": "Contains information licensed under the Open Government Licence - British Columbia.",
+    "Open Government Licence - Canada": "Contains information licensed under the Open Government Licence - Canada.",
+    "CC0": "NASA EOSDIS data are open (CC0-1.0); cite the dataset in published work.",
+    "EnMAP Data License": "EnMAP data: DLR EnMAP Data License v1.1 applies. No sale, sub-licensing or redistribution; raw data may be shared only with affiliated users.",
+    "Access Only": "ARIS data: Access Only (BC Data Catalogue). No reproduction or redistribution without the Province's written permission.",
+}
+
+
+class ReportError(Exception):
+    """The report cannot be built; the message says why."""
+
+
+# --- styles and small helpers -----------------------------------------------------------
+
+
+def _styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()
+    return {
+        "title": ParagraphStyle("t", parent=base["Title"], fontSize=22, leading=26, alignment=TA_LEFT, spaceAfter=4),
+        "subtitle": ParagraphStyle("st", parent=base["Normal"], fontSize=10, textColor=colors.HexColor("#555555"), spaceAfter=10),
+        "h1": ParagraphStyle("h1", parent=base["Heading1"], fontSize=15, leading=18, spaceBefore=8, spaceAfter=6, textColor=colors.HexColor("#1f3a5f")),
+        "h2": ParagraphStyle("h2", parent=base["Heading2"], fontSize=11, leading=14, spaceBefore=8, spaceAfter=4, textColor=colors.HexColor("#1f3a5f")),
+        "body": ParagraphStyle("b", parent=base["BodyText"], fontSize=9.5, leading=13, spaceAfter=5),
+        "small": ParagraphStyle("s", parent=base["BodyText"], fontSize=7.5, leading=9.5, textColor=colors.HexColor("#444444")),
+        "cell": ParagraphStyle("c", parent=base["BodyText"], fontSize=8, leading=9.5, spaceAfter=0),
+        "cellb": ParagraphStyle("cb", parent=base["BodyText"], fontSize=8, leading=9.5, spaceAfter=0, fontName="Helvetica-Bold"),
+        "caption": ParagraphStyle("cap", parent=base["BodyText"], fontSize=8, leading=10, textColor=colors.HexColor("#444444"), spaceAfter=6),
+        "banner": ParagraphStyle("ban", parent=base["BodyText"], fontSize=9, leading=12, textColor=colors.HexColor("#7b1d12")),
+    }
+
+
+def _p(text: object, style: ParagraphStyle) -> Paragraph:
+    """A paragraph from untrusted text: markup characters are escaped."""
+    return Paragraph(escape("" if text is None or (isinstance(text, float) and pd.isna(text)) else str(text)), style)
+
+
+def _image(path: Path, max_width: float, max_height: float = 8.0 * inch) -> Image:
+    with PILImage.open(path) as im:
+        w, h = im.size
+    scale = min(max_width / w, max_height / h)
+    return Image(str(path), width=w * scale, height=h * scale)
+
+
+def _table(rows: list[list[object]], widths: list[float], styles: dict, *, header: bool = True, zebra: bool = True) -> Table:
+    data = []
+    for r, row in enumerate(rows):
+        style = styles["cellb"] if header and r == 0 else styles["cell"]
+        data.append([c if isinstance(c, (Paragraph, Image, Table)) else _p(c, style) for c in row])
+    t = Table(data, colWidths=widths, repeatRows=1 if header else 0)
+    cmds = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c8c8c8")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+    ]
+    if header:
+        cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6ecf3")))
+    if zebra:
+        cmds += [("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f7f7f7")) for i in range(2, len(rows), 2)]
+    t.setStyle(TableStyle(cmds))
+    return t
+
+
+def _bullets(items: list[str], styles: dict) -> ListFlowable:
+    return ListFlowable([ListItem(Paragraph(i, styles["body"]), leftIndent=12) for i in items], bulletType="bullet", start="-", leftIndent=12)
+
+
+def _not_available(styles: dict, what: str, command: str) -> list:
+    return [Paragraph(f"{escape(what)} is not available for this project yet. Run <font face='Courier'>{escape(command)}</font> to produce it.", styles["body"])]
+
+
+def friendly_feature(name: str) -> str:
+    known = {
+        "tenure_density": "Tenure density",
+        "aris_density": "ARIS report density (exploration effort)",
+        "dist_minfile": "Distance to known occurrences",
+        "nrcan_magnetics": "Regional magnetics (NRCan)",
+        "nrcan_gravity": "Regional gravity (NRCan)",
+    }
+    if name in known:
+        return known[name]
+    if name.startswith("rgs_"):
+        return f"Stream-sediment geochemistry: {name[4:].capitalize()}"
+    return name
+
+
+# --- gathering what the project has ------------------------------------------------------
+
+
+@dataclass
+class Facts:
+    aoi_km2: float
+    occurrences: gpd.GeoDataFrame | None
+    tenure: gpd.GeoDataFrame | None
+    aris: gpd.GeoDataFrame | None
+    leads: gpd.GeoDataFrame | None
+    target: dict | None  # grid.json, cv_report.json, importance rows, targets, files
+    samples: list[SampleEntry] = field(default_factory=list)
+    n_pending: int = 0
+
+
+def _target_info(project: Project) -> dict | None:
+    folder = project.root / "target"
+    grid_json = folder / "grid.json"
+    if not (folder / "prospectivity.tif").is_file() or not grid_json.is_file():
+        return None
+    info: dict = {"grid": json.loads(grid_json.read_text(encoding="utf-8")), "cv": None, "importance": [], "targets": None}
+    cv = folder / "cv_report.json"
+    if cv.is_file():
+        info["cv"] = json.loads(cv.read_text(encoding="utf-8"))
+    imp = folder / "feature_importance.csv"
+    if imp.is_file():
+        info["importance"] = pd.read_csv(imp).to_dict("records")
+    info["targets"] = layer_or_none(folder / "targets.gpkg", "targets_top")
+    return info
+
+
+def gather(project: Project, lead_id: str | None, assets: Path) -> tuple[Facts, gpd.GeoSeries | None, gpd.GeoSeries | None]:
+    """Everything the report draws on. Returns the facts, plus the featured lead's polygon (a
+    one-row GeoSeries) and its reports' numbers when ``lead_id`` is given."""
+    crs = project.config.crs
+    aoi = project.read_aoi()
+    tenure = layer_or_none(project.data_gpkg, "mto_tenure")
+    leads = layer_or_none(project.data_gpkg, "leads")
+    lead_geom, report_numbers = None, None
+    if lead_id is not None:
+        if leads is None:
+            raise ReportError("no leads layer yet; run 'gossan leads run' first")
+        row = leads[leads["lead_id"] == str(lead_id)]
+        if row.empty:
+            raise ReportError(f"lead {lead_id!r} not found; see outputs/leads_ranked.csv")
+        lead_geom = gpd.GeoSeries([row.iloc[0].geometry], crs=crs)
+        aris_all = layer_or_none(project.data_gpkg, "aris_index")
+        if aris_all is not None:
+            on = reports_for_lead(row.iloc[0], aris_all.to_crs(crs))
+            report_numbers = {str(int(n)) for n in on["ARIS_NUMBER"]}
+        else:
+            report_numbers = set()
+    outline = lead_geom if lead_geom is not None else (tenure.to_crs(crs).geometry if tenure is not None else None)
+    entries, pending = collect_samples(project, outline, report_numbers, assets)
+    facts = Facts(
+        aoi_km2=float(aoi.union_all().area / 1e6),
+        occurrences=layer_or_none(project.data_gpkg, "minfile"),
+        tenure=tenure,
+        aris=layer_or_none(project.data_gpkg, "aris_index"),
+        leads=leads,
+        target=_target_info(project),
+        samples=entries,
+        n_pending=pending,
+    )
+    return facts, lead_geom, report_numbers
+
+
+def tenure_summary(tenure: gpd.GeoDataFrame, today: datetime) -> dict:
+    t = tenure.drop_duplicates("TENURE_NUMBER_ID")
+    good_to = pd.to_datetime(t["GOOD_TO_DATE"], utc=True, errors="coerce")
+    issued = pd.to_datetime(t["ISSUE_DATE"], utc=True, errors="coerce")
+    today_ts = pd.Timestamp(today)
+    owners = (
+        tenure.drop_duplicates(["TENURE_NUMBER_ID", "OWNER_NAME"])
+        .groupby("OWNER_NAME")["TENURE_NUMBER_ID"]
+        .nunique()
+        .sort_values(ascending=False)
+        .head(5)
+    )
+    return {
+        "n": len(t),
+        "hectares": float(t["AREA_IN_HECTARES"].sum()),
+        "types": dict(Counter(t["TENURE_TYPE_DESCRIPTION"].fillna("unknown"))),
+        "active": int((good_to >= today_ts).sum()),
+        "lapsed": int((good_to < today_ts).sum()),
+        "issued_first": None if issued.isna().all() else issued.min().strftime("%Y-%m-%d"),
+        "issued_last": None if issued.isna().all() else issued.max().strftime("%Y-%m-%d"),
+        "owners": [(str(k), int(v)) for k, v in owners.items()],
+    }
+
+
+# --- sections ----------------------------------------------------------------------------
+
+
+def _sec_summary(project: Project, f: Facts, lead_id: str | None, st: dict, today: datetime) -> list:
+    out: list = [Paragraph("Executive summary", st["h1"])]
+    bullets = [f"Area of interest: {f.aoi_km2:,.1f} km² in {escape(project.config.crs)}."]
+    if f.occurrences is not None:
+        col = "COMMODITY_DESCRIPTION1"
+        top = ""
+        if col in f.occurrences:
+            counts = Counter(str(v).strip() for v in f.occurrences[col].dropna())
+            top = " Most common commodities: " + ", ".join(f"{escape(k)} ({n})" for k, n in counts.most_common(3)) + "." if counts else ""
+        bullets.append(f"{len(f.occurrences)} MINFILE mineral occurrence(s) in the area.{top}")
+    if f.tenure is not None:
+        ts = tenure_summary(f.tenure, today)
+        bullets.append(f"{ts['n']} mineral/placer tenure(s) covering {ts['hectares']:,.0f} ha ({ts['active']} active, {ts['lapsed']} past their good-to date).")
+    if f.aris is not None:
+        yrs = f.aris["REPORT_YEAR"].dropna()
+        span = f", {int(yrs.min())} to {int(yrs.max())}" if len(yrs) else ""
+        bullets.append(f"{len(f.aris)} assessment report(s) on file in ARIS{span}.")
+    if f.leads is not None and len(f.leads):
+        top = f.leads.iloc[0]
+        name = top["claim_name"] if isinstance(top["claim_name"], str) else "unnamed tenure"
+        bullets.append(f"{len(f.leads)} tenure(s) scored as leads; the highest is {escape(name)} (tenure {escape(str(top['lead_id']))}, score {top['score']:g}).")
+    if f.target is not None:
+        g = f.target["grid"]
+        line = f"Prospectivity model: {g['n_cells_in_aoi']:,} cells at {g['resolution_m']:g} m, trained on {g['n_known_occurrences_in_aoi']} known occurrences"
+        cv = f.target["cv"]
+        if cv and cv.get("auc_mean") is not None:
+            line += f"; spatial cross-validation AUC {cv['auc_mean']:.2f}, top-5% capture {cv['capture_top5_mean']:.0%} (random: 5%)"
+        n_t = 0 if f.target["targets"] is None else len(f.target["targets"])
+        bullets.append(line + f". {n_t} top-percentile target polygon(s).")
+    n_maps = sum(1 for e in f.samples if e.kind == "map")
+    n_tables = sum(1 for e in f.samples if e.kind == "table")
+    bullets.append(
+        f"Digitized samples approved by a reviewer: {n_maps} georeferenced map(s), {n_tables} extracted table(s)"
+        + (f"; {f.n_pending} more waiting for review." if f.n_pending else ".")
+    )
+    out.append(_bullets(bullets, st))
+    out.append(Paragraph("How to read this", st["h2"]))
+    out.append(
+        Paragraph(
+            "Prospectivity values rank cells by resemblance to known occurrences; they are <b>not</b> the probability that a "
+            "deposit is present. Tenure and report density partly reflect where people have already looked, so the model "
+            "can favour well-explored ground. Spatial cross-validation holds out whole blocks of ground and is the fairer "
+            "test of how the model does on unseen areas. Digitized samples have been checked by a person; everything else "
+            "is automatic output awaiting geological review.",
+            st["body"],
+        )
+    )
+    if lead_id:
+        out.append(Paragraph(f"This pack features lead {escape(str(lead_id))}.", st["body"]))
+    return out
+
+
+def _sec_property(project: Project, f: Facts, st: dict, assets: Path, today: datetime) -> list:
+    out: list = [Paragraph("Property and tenure", st["h1"])]
+    img = overview_map(project, assets / "overview_map.png")
+    out.append(KeepTogether([_image(img, CONTENT_W), Paragraph("Figure 1. Area of interest with tenure, ARIS report locations and MINFILE occurrences.", st["caption"])]))
+    if f.tenure is None:
+        out += _not_available(st, "Tenure information", "gossan harvest --source mto_tenure")
+        return out
+    ts = tenure_summary(f.tenure, today)
+    rows = [
+        ["Tenures", f"{ts['n']}"],
+        ["Total area", f"{ts['hectares']:,.0f} ha"],
+        ["Types", ", ".join(f"{k}: {v}" for k, v in sorted(ts["types"].items()))],
+        ["Status", f"{ts['active']} active, {ts['lapsed']} past good-to date"],
+        ["Issued", f"{ts['issued_first']} to {ts['issued_last']}" if ts["issued_first"] else "no issue dates"],
+        ["Largest holders (by tenure count)", "; ".join(f"{o} ({n})" for o, n in ts["owners"]) or "n/a"],
+    ]
+    out.append(_table(rows, [1.9 * inch, CONTENT_W - 1.9 * inch], st, header=False))
+    out.append(Paragraph("Tenure is a snapshot of current Mineral Titles Online data: it shows when a tenure was issued, not when it last changed hands.", st["small"]))
+    return out
+
+
+def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: dict) -> list:
+    out: list = [Paragraph("Lead scoring", st["h1"])]
+    if f.leads is None:
+        return out + _not_available(st, "Lead scoring", "gossan leads run")
+    out.append(
+        Paragraph(
+            "Each tenure is scored out of 100: points for how recently it was issued, for the number of assessment "
+            "reports located on it, and for how many of those are pre-1990 (paper-era, the likeliest to need digitizing). "
+            "A high score marks a property that may benefit from compilation or digitizing work; it is not a judgement of mineral potential.",
+            st["body"],
+        )
+    )
+    rows: list[list[object]] = [["Rank", "Tenure", "Claim", "Owner", "Issued", "Score", "ARIS reports"]]
+    for r in f.leads.head(10).itertuples():
+        rows.append([r.rank, r.lead_id, r.claim_name, r.owner, r.issue_date, f"{r.score:g}", r.aris_count])
+    out.append(_table(rows, [0.4 * inch, 0.7 * inch, 1.3 * inch, 2.0 * inch, 0.8 * inch, 0.5 * inch, 0.8 * inch], st))
+    out.append(Paragraph(f"Top {min(10, len(f.leads))} of {len(f.leads)} scored tenures. Full list: outputs/leads_ranked.csv.", st["small"]))
+    if lead_id is not None:
+        row = f.leads[f.leads["lead_id"] == str(lead_id)].iloc[0]
+        out.append(Paragraph(f"Featured lead: {escape(str(lead_id))}", st["h2"]))
+        facts = [
+            ["Claim", row["claim_name"]], ["Owner", row["owner"]], ["Tenure type", row["tenure_type"]],
+            ["Issued / good to", f"{row['issue_date']} / {row['good_to_date']}"], ["Area", f"{row['area_ha']} ha"],
+            ["Score", f"{row['score']:g} (rank {row['rank']}; recency {row['recency_points']:g}, report count {row['count_points']:g}, legacy reports {row['legacy_points']:g})"],
+        ]  # fmt: skip
+        out.append(_table(facts, [1.4 * inch, CONTENT_W - 1.4 * inch], st, header=False))
+        aris = f.aris
+        if aris is not None:
+            on = reports_for_lead(row, aris.to_crs(project.config.crs))
+            if len(on):
+                out.append(Spacer(1, 6))
+                rep = [["ARIS", "Year", "Title", "Operator", "Work"]]
+                for r in on.itertuples():
+                    rep.append([int(r.ARIS_NUMBER), int(r.REPORT_YEAR), r.ASSESSMENT_REPORT_TITLE, r.OPERATOR_NAMES, r.GENERAL_WORK_TYPES])
+                out.append(_table(rep, [0.55 * inch, 0.45 * inch, 2.6 * inch, 1.6 * inch, 1.3 * inch], st))
+    return out
+
+
+def _sec_target(project: Project, f: Facts, st: dict, assets: Path) -> list:
+    out: list = [Paragraph("Prospectivity targeting", st["h1"])]
+    if f.target is None:
+        return out + _not_available(st, "Prospectivity targeting", "gossan target")
+    g, cv, importance, targets = f.target["grid"], f.target["cv"], f.target["importance"], f.target["targets"]
+    folder = project.root / "target"
+    out.append(
+        Paragraph(
+            "A random forest trained by positive-unlabeled bagging ranks every cell of the area by how much it resembles the "
+            "known MINFILE occurrences in the supplied datasets. Occurrences are the positives; all other cells are treated as "
+            "<i>unlabeled</i>, not as barren.",
+            st["body"],
+        )
+    )
+    grid_rows = [
+        ["Grid", f"{g['width']} x {g['height']} cells at {g['resolution_m']:g} m ({g['crs']})"],
+        ["Cells in the area", f"{g['n_cells_in_aoi']:,} ({g['area_km2']} km²)"],
+        ["Known occurrences used", str(g["n_known_occurrences_in_aoi"])],
+        ["Datasets used", ", ".join(friendly_feature(n) for n in g["features_used"])],
+        ["Datasets skipped", f"{len(g['features_skipped'])} (not harvested, too sparse, or no variation)" if g["features_skipped"] else "none"],
+    ]
+    out.append(_table(grid_rows, [1.7 * inch, CONTENT_W - 1.7 * inch], st, header=False))
+
+    pm = raster_map(project, folder / "prospectivity.tif", assets / "prospectivity_map.png", title="Prospectivity score", cmap="viridis",
+                    colourbar_label="Relative score (0 to 1)", overlay_targets=True, overlay_occurrences=True)
+    rng = finite_range(folder / "prospectivity.tif")
+    if pm is not None:
+        out.append(
+            KeepTogether(
+                [
+                    _image(pm, CONTENT_W),
+                    Paragraph(
+                        "Figure 2. Prospectivity score (a relative ranking, not a probability of a deposit) with the top-percentile "
+                        "targets outlined in white and known occurrences in red."
+                        + (f" Score range {rng[0]:.2f} to {rng[1]:.2f}." if rng else ""),
+                        st["caption"],
+                    ),
+                ]
+            )
+        )
+    um = raster_map(project, folder / "uncertainty.tif", assets / "uncertainty_map.png", title="Uncertainty (spread across bags)", cmap="magma",
+                    colourbar_label="Standard deviation of the score")
+    if um is not None:
+        out.append(
+            KeepTogether(
+                [
+                    _image(um, CONTENT_W * 0.8),
+                    Paragraph(
+                        "Figure 3. How much each cell's score varies between the model's bags. High values mark cells whose rank depends on "
+                        "which training cells were drawn. This covers model variability only, not errors in the input data.",
+                        st["caption"],
+                    ),
+                ]
+            )
+        )
+
+    out.append(Paragraph("Top targets", st["h2"]))
+    if targets is None or not len(targets):
+        out.append(Paragraph("No target polygons were produced.", st["body"]))
+    else:
+        rows = [["Rank", "Target", "Area (ha)", "Mean score", "Mean spread", "Known occurrences"]]
+        for r in targets.head(10).itertuples():
+            rows.append([r.rank, r.target_id, f"{r.area_ha:,.1f}", f"{r.mean_score:.3f}", f"{r.mean_spread:.3f}", r.n_known_occurrences])
+        out.append(_table(rows, [0.5 * inch, 0.8 * inch, 1.0 * inch, 1.1 * inch, 1.1 * inch, 1.5 * inch], st))
+        pct = float(targets["percentile"].iloc[0])
+        out.append(Paragraph(f"Connected cells at or above the {pct:g}th percentile of the score; {len(targets)} polygon(s), top {min(10, len(targets))} shown.", st["small"]))
+
+    out.append(Paragraph("What drives the model", st["h2"]))
+    if importance:
+        total = sum(r["importance"] for r in importance) or 1.0
+        rows = [["Rank", "Dataset", "Share of model importance"]]
+        for r in importance:
+            rows.append([r["rank"], friendly_feature(r["feature"]), f"{100 * r['importance'] / total:.1f}%"])
+        out.append(_table(rows, [0.5 * inch, 4.0 * inch, 1.8 * inch], st))
+        out.append(
+            Paragraph(
+                "Importance shows how much the forest relied on each dataset, not whether the relationship is geologically meaningful. "
+                "Report and tenure density measure exploration effort. Distance to known occurrences rewards ground near existing finds.",
+                st["small"],
+            )
+        )
+
+    out.append(Paragraph("Spatial cross-validation", st["h2"]))
+    if cv is None or not cv.get("folds"):
+        reason = "; ".join(cv.get("skipped", [])) if cv else "cross-validation was not run"
+        out.append(Paragraph(f"Not available: {escape(reason)}.", st["body"]))
+    else:
+        rows = [["Fold", "Training occurrences", "Held-out occurrences", "AUC", "Top-5% capture"]]
+        for r in cv["folds"]:
+            rows.append([r["fold"], r["n_train_positives"], r["n_test_positives"], f"{r['auc']:.2f}", f"{r['capture_top5']:.0%}"])
+        rows.append(["Mean +/- sd", "", "", f"{cv['auc_mean']:.2f} +/- {cv['auc_std']:.2f}", f"{cv['capture_top5_mean']:.0%} +/- {cv['capture_top5_std']:.0%}"])
+        out.append(_table(rows, [1.0 * inch, 1.5 * inch, 1.5 * inch, 1.2 * inch, 1.3 * inch], st))
+        out.append(
+            Paragraph(
+                "Whole blocks of ground are held out in each fold so the model is tested on places it has not seen. AUC is the chance that a "
+                "held-out occurrence outranks a held-out unlabeled cell (undiscovered deposits among the unlabeled cells pull it down, so treat "
+                "it as a lower bound). Top-5% capture is the share of held-out occurrences in the top 5% of cells; a model with no skill "
+                "captures about 5%.",
+                st["small"],
+            )
+        )
+    return out
+
+
+def _sec_samples(f: Facts, st: dict) -> list:
+    out: list = [Paragraph("Before &amp; After: digitized samples", st["h1"])]
+    if not f.samples:
+        note = "No digitized samples have been approved yet."
+        if f.n_pending:
+            note += f" {f.n_pending} item(s) are waiting for review ('gossan review')."
+        return out + [Paragraph(note, st["body"])]
+    half = (CONTENT_W - 12) / 2
+    for e in f.samples:
+        block: list = [Paragraph(escape(e.title), st["h2"])]
+        left: object = _image(e.before, half) if e.before else _p("(scan image not found)", st["cell"])
+        if e.kind == "map":
+            right: object = _image(e.after, half) if e.after else _p("(georeferenced map not found)", st["cell"])
+            heads = ["Before: the scan", "After: georeferenced, tenure outlined"]
+        else:
+            heads = ["Before: the scan", "After: parsed data (excerpt)"]
+            if e.snippet is None:
+                right = _p("(data file not found)", st["cell"])
+            else:
+                ncol = len(e.snippet[0])
+                right = _table([list(r) for r in e.snippet], [half / ncol] * ncol, st)
+        grid = Table([[ _p(heads[0], st["cellb"]), _p(heads[1], st["cellb"])], [left, right]], colWidths=[half + 6, half + 6])
+        grid.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        block += [grid, Paragraph(escape(e.approval), st["caption"])]
+        out.append(KeepTogether(block))
+    return out
+
+
+def _sec_sources(project: Project, st: dict) -> list:
+    records = project.provenance.read()
+    out: list = [Paragraph("Data sources and provenance", st["h1"])]
+    sources = data_sources(records)
+    if not sources:
+        out.append(Paragraph("No external datasets have been retrieved for this project.", st["body"]))
+    else:
+        rows: list[list[object]] = [["Dataset", "Source", "Identifier", "Retrieved", "Licence"]]
+        for r in sources:
+            rows.append([r.dataset, r.source, r.identifier, f"{r.retrieved_at:%Y-%m-%d}", r.license])
+        out.append(_table(rows, [0.9 * inch, 1.5 * inch, 1.6 * inch, 0.7 * inch, 1.8 * inch], st))
+    ops = Counter(r.operation for r in records)
+    out.append(Spacer(1, 6))
+    out.append(Paragraph(f"The provenance log (provenance.jsonl) holds {len(records)} record(s): " + ", ".join(f"{k} x{v}" for k, v in sorted(ops.items())) + ".", st["small"]))
+
+    out.append(Paragraph("Notices", st["h2"]))
+    licences = " | ".join(r.license for r in records)
+    notices = [text for key, text in LICENCE_NOTICES.items() if key in licences]
+    if LICENCE_NOTICES["Access Only"] not in notices:  # always: the pack is built from ARIS-derived layers
+        notices.append(LICENCE_NOTICES["Access Only"])
+    out.append(_bullets([escape(n) for n in notices], st))
+    out.append(Paragraph(f"Generated by Gossan {escape(__version__)}.", st["small"]))
+    return out
+
+
+# --- document ----------------------------------------------------------------------------
+
+
+def _page_decorations(project_name: str):
+    def draw(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica-Bold", 7)
+        canvas.setFillColor(colors.HexColor("#7b1d12"))
+        canvas.drawString(MARGIN, 0.5 * inch, FOOTER)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawRightString(PAGE_W - MARGIN, 0.5 * inch, f"{project_name} | Page {doc.page}")
+        canvas.setStrokeColor(colors.HexColor("#c8c8c8"))
+        canvas.line(MARGIN, 0.65 * inch, PAGE_W - MARGIN, 0.65 * inch)
+        canvas.restoreState()
+
+    return draw
+
+
+def build_pdf(project: Project, lead_id: str | None = None, today: datetime | None = None) -> Path:
+    """Write ``outputs/report.pdf`` and log it to provenance. Raises ``ReportError`` for an unknown lead."""
+    today = today or datetime.now(UTC)
+    st = _styles()
+    outputs = project.outputs_dir
+    outputs.mkdir(exist_ok=True)
+    assets = outputs / ASSETS_DIR
+    facts, lead_geom, _numbers = gather(project, lead_id, assets)
+
+    cfg = project.config
+    story: list = [
+        Paragraph(escape(cfg.name), st["title"]),
+        Paragraph(
+            escape(" | ".join(filter(None, [f"Client: {cfg.client}" if cfg.client else "", f"CRS {cfg.crs}", f"Generated {today:%Y-%m-%d}", "Pitch pack (draft)"]))),
+            st["subtitle"],
+        ),
+    ]
+    banner = Table([[Paragraph(DISCLAIMER, st["banner"])]], colWidths=[CONTENT_W])
+    banner.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fdecea")), ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#c0392b")), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+    story += [banner, Spacer(1, 10)]
+
+    sections = {
+        "summary": _sec_summary(project, facts, lead_id, st, today),
+        "property": _sec_property(project, facts, st, assets, today),
+        "leads": _sec_leads(project, facts, lead_id, lead_geom, st),
+        "targeting": _sec_target(project, facts, st, assets),
+        "samples": _sec_samples(facts, st),
+        "sources": _sec_sources(project, st),
+    }
+    for i, flowables in enumerate(sections.values()):
+        if i:
+            story.append(PageBreak())
+        story += flowables
+
+    path = outputs / PDF_NAME
+    doc = SimpleDocTemplate(
+        str(path), pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=0.7 * inch, bottomMargin=0.9 * inch,
+        title=f"Gossan pitch pack: {cfg.name}", author="Gossan", subject="INTERNAL DRAFT - contains ARIS data (Access Only)",
+    )  # fmt: skip
+    deco = _page_decorations(cfg.name)
+    doc.build(story, onFirstPage=deco, onLaterPages=deco)
+
+    with pymupdf.open(path) as pdf:
+        n_pages = pdf.page_count
+    project.provenance.log(
+        dataset="report_pdf",
+        source="gossan",
+        identifier=f"outputs/{PDF_NAME}",
+        url=None,
+        license=DERIVED_LICENSE,
+        operation="build_report_pdf",
+        parameters={
+            "lead_id": lead_id,
+            "pages": n_pages,
+            "sections": list(sections),
+            "targeting_included": facts.target is not None,
+            "leads_included": facts.leads is not None,
+            "n_approved_maps": sum(1 for e in facts.samples if e.kind == "map"),
+            "n_approved_tables": sum(1 for e in facts.samples if e.kind == "table"),
+            "n_pending_items": facts.n_pending,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        },
+    )
+    return path

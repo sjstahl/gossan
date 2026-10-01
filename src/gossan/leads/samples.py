@@ -105,57 +105,133 @@ def _sort_key(item: ReviewItem) -> tuple[int, int]:
     return int(item.report), int(item.page) if item.page.isdigit() else 0
 
 
-def add_before_after(
-    doc, project: Project, lead_geometry, report_numbers: set[str], assets: Path
-) -> SampleSummary:
-    """Append the section to ``doc``. ``lead_geometry`` is the tenure polygon (project CRS)."""
-    summary = SampleSummary()
-    items = [i for i in approved_items(project, report_numbers) if i.type in {"map", "table"}]
-    summary.n_pending = sum(
-        1 for i in read_queue(project) if i.status == "PENDING" and i.report in report_numbers
-    )
-    doc.add_heading("Before & After: digitized samples", level=1)
-    if not items:
-        note = "No approved digitized samples yet for this property."
-        if summary.n_pending:
-            note += f" {summary.n_pending} item(s) are waiting for review."
-        doc.add_paragraph(note)
-        return summary
+@dataclass
+class SampleEntry:
+    """One approved digitized item, with everything needed to show it before and after."""
 
-    outline = gpd.GeoSeries([lead_geometry], crs=project.config.crs)
+    item: ReviewItem
+    kind: str  # "map" or "table"
+    title: str
+    before: Path | None  # rendered scan thumbnail
+    after: Path | None  # georeferenced map thumbnail (maps)
+    snippet: list[list[str]] | None  # first rows of the approved data (tables)
+    detail: str
+    approval: str  # "Approved by X on DATE. Reviewer's note: ..."
+    missing: list[str]
+
+
+def collect_samples(
+    project: Project, outline_geometry, report_numbers: set[str] | None, assets: Path
+) -> tuple[list[SampleEntry], int]:
+    """Approved maps and tables (for ``report_numbers``, or every report if None), each with its
+    thumbnails made under ``assets``, plus the number of items still pending for those reports.
+
+    ``outline_geometry`` is drawn over georeferenced maps (a tenure polygon, a GeoSeries of
+    tenures, or None).
+    """
+    items = [i for i in approved_items(project, report_numbers) if i.type in {"map", "table"}]
+    n_pending = sum(
+        1
+        for i in read_queue(project)
+        if i.status == "PENDING" and (report_numbers is None or i.report in report_numbers)
+    )
+    if outline_geometry is None:
+        outline = None
+    elif isinstance(outline_geometry, gpd.GeoSeries):
+        outline = outline_geometry
+    else:
+        outline = gpd.GeoSeries([outline_geometry], crs=project.config.crs)
+
+    entries = []
     for item in sorted(items, key=_sort_key):
         where = f"ARIS {item.report}" + (f", page {item.page}" if item.page else "")
-        doc.add_heading(f"{where}: {'georeferenced map' if item.type == 'map' else 'extracted table'}", level=2)
         stem = f"{int(item.report):05d}_p{item.page or 0}_{item.type}"
+        missing: list[str] = []
         before = thumbnail(project.root / item.image, assets / f"{stem}_before.png") if item.image else None
-        grid = doc.add_table(rows=2, cols=2)
-        grid.rows[0].cells[0].text, grid.rows[0].cells[1].text = "Before: the scan", ""
-        left, right = grid.rows[1].cells
-        _put_picture(left, before, summary, f"{where} scan image")
-
+        if before is None:
+            missing.append(f"{where} scan image")
+        after, snippet = None, None
         if item.type == "map":
-            grid.rows[0].cells[1].text = "After: georeferenced, tenure outlined"
             after = georef_thumbnail(project.root / item.source, outline, assets / f"{stem}_after.png")
-            _put_picture(right, after, summary, f"{where} georeferenced map")
+            if after is None:
+                missing.append(f"{where} georeferenced map")
             info = _latest_params(project, {"georef_auto", "georef_manual"}, output=item.source)
             detail = (
                 f"{info['n_gcps']} control points, RMS {info['rms_m']} m, {info.get('pixel_size_m', '?')} m pixels"
                 if info
                 else "georeferencing details not found in provenance"
             )
-            summary.n_maps += 1
         else:
-            grid.rows[0].cells[1].text = "After: parsed data (excerpt)"
-            total_rows, total_cols = _put_snippet(right, project.root / item.source, summary, where)
+            snippet, total_rows, total_cols = read_snippet(project.root / item.source)
+            if snippet is None:
+                missing.append(f"{where} data")
             loaded = _latest_params(project, {"load_drillhole_table"}, identifier=item.item_id)
             detail = f"{total_rows} row(s), {total_cols} column(s) in full" + (
                 f"; loaded into the {loaded['table']} table as {loaded['records']} record(s)" if loaded else ""
             )
-            summary.n_tables += 1
-        doc.add_paragraph(
-            f"{detail}. Approved by {item.reviewed_by or 'unknown'} on {item.reviewed_at or 'unknown date'}."
-            + (f" Reviewer's note: {item.decision_note}" if item.decision_note else "")
+        approval = f"{detail}. Approved by {item.reviewed_by or 'unknown'} on {item.reviewed_at or 'unknown date'}." + (
+            f" Reviewer's note: {item.decision_note}" if item.decision_note else ""
         )
+        title = f"{where}: {'georeferenced map' if item.type == 'map' else 'extracted table'}"
+        entries.append(SampleEntry(item, item.type, title, before, after, snippet, detail, approval, missing))
+    return entries, n_pending
+
+
+def read_snippet(csv_path: Path) -> tuple[list[list[str]] | None, int, int]:
+    """(header + first rows limited in width, total data rows, total columns); None if unreadable."""
+    if not csv_path.is_file():
+        return None, 0, 0
+    with csv_path.open(newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f))
+    if not rows:
+        return None, 0, 0
+    header, body = rows[0], rows[1:]
+    cols = min(len(header), SNIPPET_COLS)
+    shown = [header[:cols]] + [(r + [""] * cols)[:cols] for r in body[:SNIPPET_ROWS]]
+    return shown, len(body), len(header)
+
+
+def add_before_after(
+    doc, project: Project, lead_geometry, report_numbers: set[str], assets: Path
+) -> SampleSummary:
+    """Append the section to ``doc``. ``lead_geometry`` is the tenure polygon (project CRS)."""
+    summary = SampleSummary()
+    entries, summary.n_pending = collect_samples(project, lead_geometry, report_numbers, assets)
+    doc.add_heading("Before & After: digitized samples", level=1)
+    if not entries:
+        note = "No approved digitized samples yet for this property."
+        if summary.n_pending:
+            note += f" {summary.n_pending} item(s) are waiting for review."
+        doc.add_paragraph(note)
+        return summary
+
+    for e in entries:
+        doc.add_heading(e.title, level=2)
+        grid = doc.add_table(rows=2, cols=2)
+        grid.rows[0].cells[0].text = "Before: the scan"
+        grid.rows[0].cells[1].text = (
+            "After: georeferenced, tenure outlined" if e.kind == "map" else "After: parsed data (excerpt)"
+        )
+        left, right = grid.rows[1].cells
+        where = e.title.split(":")[0]
+        _put_picture(left, e.before, summary, f"{where} scan image")
+        if e.kind == "map":
+            _put_picture(right, e.after, summary, f"{where} georeferenced map")
+            summary.n_maps += 1
+        else:
+            if e.snippet is None:
+                right.text = f"({where} data file not found)"
+                summary.missing.append(f"{where} data")
+            else:
+                table = right.add_table(rows=1, cols=len(e.snippet[0]))
+                table.style = "Light List"
+                for c, head in zip(table.rows[0].cells, e.snippet[0], strict=True):
+                    c.text = head
+                for row in e.snippet[1:]:
+                    for c, value in zip(table.add_row().cells, row, strict=True):
+                        c.text = value
+            summary.n_tables += 1
+        doc.add_paragraph(e.approval)
     return summary
 
 
@@ -165,22 +241,3 @@ def _put_picture(cell, image: Path | None, summary: SampleSummary, label: str) -
         summary.missing.append(label)
         return
     cell.paragraphs[0].add_run().add_picture(str(image), width=PICTURE_WIDTH)
-
-
-def _put_snippet(cell, csv_path: Path, summary: SampleSummary, label: str) -> tuple[int, int]:
-    if not csv_path.is_file():
-        cell.text = f"({label} data file not found)"
-        summary.missing.append(f"{label} data")
-        return 0, 0
-    with csv_path.open(newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.reader(f))
-    header, body = rows[0], rows[1:]
-    shown_cols = min(len(header), SNIPPET_COLS)
-    table = cell.add_table(rows=1, cols=shown_cols)
-    table.style = "Light List"
-    for c, head in zip(table.rows[0].cells, header[:shown_cols], strict=True):
-        c.text = head
-    for row in body[:SNIPPET_ROWS]:
-        for c, value in zip(table.add_row().cells, (row + [""] * shown_cols)[:shown_cols], strict=True):
-            c.text = value
-    return len(body), len(header)

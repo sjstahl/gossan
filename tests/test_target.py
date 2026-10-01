@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -7,7 +6,7 @@ import pytest
 import rasterio
 from rasterio.transform import from_bounds
 from shapely.geometry import Point, Polygon, box
-from typer.testing import CliRunner
+from synthetic import CRS, X0, Y0, H, W, build_project, runner, small_cfg
 
 from gossan.cli import app
 from gossan.core.config import TargetConfig
@@ -25,64 +24,11 @@ from gossan.target.grid import GridError, build_grid
 from gossan.target.model import pu_bagging
 from gossan.target.outputs import top_percentile_polygons, write_cog
 
-runner = CliRunner()
-CRS = "EPSG:32610"
-X0, Y0, W, H = 690_000.0, 5_617_000.0, 4000.0, 3000.0  # a 4 km x 3 km AOI
-
-
-def small_cfg(**kw) -> TargetConfig:
-    base = {"resolution_m": 100.0, "n_bags": 4, "n_trees": 15, "folds": 3, "seed": 1}
-    return TargetConfig(**{**base, **kw})
-
-
-def make_aoi(path: Path, geometry=None) -> Path:
-    gpd.GeoDataFrame({"id": [1]}, geometry=[geometry or box(X0, Y0, X0 + W, Y0 + H)], crs=CRS).to_file(path, driver="GPKG")
-    return path
-
 
 @pytest.fixture
 def make_project(tmp_path):
-    def build(*, layers=("minfile", "mto_tenure", "aris_index", "rgs"), raster=True, n_occ=40, geometry=None, seed=0) -> Project:
-        aoi = make_aoi(tmp_path / "aoi.gpkg", geometry)
-        assert runner.invoke(app, ["new", "demo", "--aoi", str(aoi)]).exit_code == 0
-        project = Project(Path("demo"))
-        assert project.config.crs == CRS
-        rng = np.random.default_rng(seed)
-        gpkg = project.data_gpkg
-
-        def write(name, gdf):
-            gdf.to_file(gpkg, layer=name, driver="GPKG", engine="pyogrio")
-
-        if "minfile" in layers:  # occurrences prefer the east, where the planted signal is high
-            xs = np.concatenate([rng.uniform(X0 + 0.55 * W, X0 + W, int(n_occ * 0.85)), rng.uniform(X0, X0 + W, n_occ - int(n_occ * 0.85))])
-            ys = rng.uniform(Y0, Y0 + H, n_occ)
-            write("minfile", gpd.GeoDataFrame({"MINFILE_NUMBER": range(n_occ)}, geometry=[Point(x, y) for x, y in zip(xs, ys, strict=True)], crs=CRS))
-        if "mto_tenure" in layers:
-            write("mto_tenure", gpd.GeoDataFrame({"TENURE_NUMBER_ID": [1, 2]}, geometry=[box(X0 + 2500, Y0 + 500, X0 + 3600, Y0 + 1500), box(X0 + 200, Y0 + 2000, X0 + 900, Y0 + 2800)], crs=CRS))
-        if "aris_index" in layers:
-            ax, ay = rng.uniform(X0, X0 + W, 30), rng.uniform(Y0, Y0 + H, 30)
-            write("aris_index", gpd.GeoDataFrame({"ARIS_NUMBER": range(30)}, geometry=[Point(x, y) for x, y in zip(ax, ay, strict=True)], crs=CRS))
-        if "rgs" in layers:
-            gx, gy = rng.uniform(X0, X0 + W, 25), rng.uniform(Y0, Y0 + H, 25)
-            write(
-                "rgs",
-                gpd.GeoDataFrame(
-                    {"COPPER_AAS_PPM": 20 + (gx - X0) / 40, "COPPER_ICPMS_PPM": [np.nan] * 25, "GOLD_INAA_PPB": rng.uniform(1, 9, 25)},
-                    geometry=[Point(x, y) for x, y in zip(gx, gy, strict=True)], crs=CRS,
-                ),
-            )  # fmt: skip
-        if raster:
-            (project.root / "rasters").mkdir()
-            cols = np.linspace(0, 1, 80, dtype=np.float32)
-            data = np.tile(cols, (60, 1))  # values rise from west to east
-            with rasterio.open(
-                project.root / "rasters" / "synth_magnetics.tif", "w", driver="GTiff", width=80, height=60, count=1,
-                dtype="float32", crs=CRS, transform=from_bounds(X0 - 200, Y0 - 200, X0 + W + 200, Y0 + H + 200, 80, 60), nodata=-9999.0,
-            ) as ds:  # fmt: skip
-                ds.write(data, 1)
-        project.config.target = small_cfg()
-        project.config.save(project.root)
-        return Project(project.root)
+    def build(**kw) -> Project:
+        return build_project(tmp_path, **kw)
 
     return build
 

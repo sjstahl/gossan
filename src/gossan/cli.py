@@ -48,6 +48,7 @@ from gossan.leads.generator import run_leads
 from gossan.leads.pack import LeadNotFoundError, build_pack
 from gossan.leads.scoring import MissingLayerError
 from gossan.report.builder import build_report
+from gossan.report.pdf import ReportError, build_pdf
 from gossan.target.run import TargetError, run_target
 
 app = typer.Typer(
@@ -277,11 +278,38 @@ def ingest(
 @app.command()
 def report(
     project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+    fmt: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="pdf (default): the pitch pack, outputs/report.pdf. docx: the short Word data-sources "
+            "report, outputs/report.docx. both: write both.",
+        ),
+    ] = "pdf",
+    lead: Annotated[
+        str | None,
+        typer.Option(help="Feature this lead (tenure number from 'gossan leads run') in the PDF."),
+    ] = None,
 ) -> None:
-    """Build outputs/map.png and outputs/report.docx (a draft for geologist review)."""
+    """Build the pitch pack PDF: a draft executive summary of everything in the project.
+
+    Sections (each appears only with what exists, and says which command makes the rest): property and
+    tenure, lead scoring, prospectivity targeting (map with targets, uncertainty, importance and
+    spatial cross-validation tables), before/after digitized samples a reviewer has approved,
+    and data sources. Every page is marked INTERNAL DRAFT because it contains ARIS data, which is
+    Access Only: do not send it outside the company without the Province's written permission.
+    """
     proj = _open_project(project)
-    path = build_report(proj)
-    typer.echo(f"Wrote {path}")
+    if fmt not in {"pdf", "docx", "both"}:
+        raise typer.BadParameter("use pdf, docx or both", param_hint="--format")
+    if fmt in {"docx", "both"}:
+        typer.echo(f"Wrote {build_report(proj)}")
+    if fmt in {"pdf", "both"}:
+        try:
+            typer.echo(f"Wrote {build_pdf(proj, lead)}")
+        except ReportError as e:
+            typer.secho(f"Error: {e}", fg="red", err=True)
+            raise typer.Exit(1) from e
 
 
 @app.command("digitize")

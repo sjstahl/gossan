@@ -13,7 +13,7 @@ def test_phase1_done_when(aoi_file, wfs):
     """A claim polygon produces a project folder and a Word report with a MINFILE map and data sources."""
     assert runner.invoke(app, ["new", "demo", "--aoi", str(aoi_file)]).exit_code == 0
     assert runner.invoke(app, ["harvest", "demo"]).exit_code == 0
-    result = runner.invoke(app, ["report", "demo"])
+    result = runner.invoke(app, ["report", "demo", "--format", "docx"])
     assert result.exit_code == 0, result.output
 
     project = Project(Path("demo"))
@@ -35,7 +35,7 @@ def test_phase1_done_when(aoi_file, wfs):
 
 def test_report_without_harvest(aoi_file):
     runner.invoke(app, ["new", "demo", "--aoi", str(aoi_file)])
-    result = runner.invoke(app, ["report", "demo"])
+    result = runner.invoke(app, ["report", "demo", "--format", "docx"])
     assert result.exit_code == 0, result.output
     text = "\n".join(p.text for p in Document("demo/outputs/report.docx").paragraphs)
     assert "have not been harvested" in text
