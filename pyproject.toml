@@ -14,6 +14,8 @@ dependencies = [
     "geopandas",
     "shapely",
     "pyogrio",
+    "rasterio",
+    "rioxarray",
     "python-docx",
     "matplotlib",
 ]
@@ -32,3 +34,5 @@ src = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# affine/rasterio emit this on every raster operation; it is third-party noise
+filterwarnings = ["ignore::PendingDeprecationWarning"]

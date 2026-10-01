@@ -67,12 +67,35 @@ def test_harvest_aris_index(project, wfs):
     assert "Access Only" in fetch.license
 
 
-def test_harvest_defaults_to_all_sources_in_one_gpkg(project, wfs):
+def test_harvest_rgs(project, wfs):
+    result = runner.invoke(app, ["harvest", "demo", "--source", "rgs"])
+    assert result.exit_code == 0, result.output
+
+    query = parse_qs(urlparse(wfs.calls[0]).query)
+    assert query["typeNames"] == ["pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_PNT_SP"]
+    assert query["CQL_FILTER"][0].startswith("BBOX(GEOMETRY,")
+
+    gdf = gpd.read_file(project.data_gpkg, layer="rgs")
+    assert gdf.crs.to_epsg() == 32610
+    assert sorted(gdf["MASTER_ID"]) == ["92I990001", "92I990002"]
+    assert "Stream sediment" in set(gdf["MATERIAL"])  # padding stripped
+    row = gdf[gdf["MASTER_ID"] == "92I990001"].iloc[0]
+    assert row["COPPER_AAS_PPM"] == 66
+    assert gdf["ZINC_AAS_PPM"].isna().sum() == 1  # nulls stay null
+
+    assert len(list((project.raw_dir / "rgs").glob("rgs_*.geojson"))) == 1
+    fetch = next(r for r in project.provenance.read() if r.operation == "fetch")
+    assert fetch.dataset == "rgs"
+    assert "Open Government Licence" in fetch.license
+
+
+def test_harvest_defaults_to_all_default_sources_in_one_gpkg(project, wfs):
     result = runner.invoke(app, ["harvest", "demo"])
     assert result.exit_code == 0, result.output
-    assert layer_names(project) == {"minfile", "mto_tenure", "aris_index"}  # layers coexist
+    # nrcan_geophysics needs configuration, so a plain harvest leaves it out.
+    assert layer_names(project) == {"minfile", "mto_tenure", "aris_index", "rgs"}
     datasets = [r.dataset for r in project.provenance.read() if r.operation == "fetch"]
-    assert sorted(datasets) == ["aris_index", "minfile", "mto_tenure"]
+    assert sorted(datasets) == ["aris_index", "minfile", "mto_tenure", "rgs"]
 
 
 def test_harvest_empty_result_writes_no_layer(project, wfs):
@@ -93,3 +116,17 @@ def test_harvest_network_failure_points_to_ingest(project, monkeypatch):
     result = runner.invoke(app, ["harvest", "demo", "--source", "aris_index"])
     assert result.exit_code == 1
     assert "gossan ingest" in result.output
+
+
+def test_one_failing_source_does_not_stop_the_others(project, wfs, monkeypatch):
+    real = WfsConnector._get
+
+    def flaky(self, url):
+        if self.name == "mto_tenure":
+            raise OSError("network down")
+        return real(self, url)
+
+    monkeypatch.setattr(WfsConnector, "_get", flaky)
+    result = runner.invoke(app, ["harvest", "demo", "--source", "mto_tenure,rgs"])
+    assert result.exit_code == 1
+    assert layer_names(project) == {"rgs"}

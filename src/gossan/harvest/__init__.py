@@ -4,7 +4,16 @@ from gossan.harvest.base import Connector
 from gossan.harvest.bc.aris import ArisIndexConnector
 from gossan.harvest.bc.minfile import MinfileConnector
 from gossan.harvest.bc.mto_tenure import MtoTenureConnector
+from gossan.harvest.bc.rgs import RgsConnector
+from gossan.harvest.national.nrcan_geophysics import NrcanGeophysicsConnector
 
 CONNECTORS: dict[str, type[Connector]] = {
-    c.name: c for c in (MinfileConnector, MtoTenureConnector, ArisIndexConnector)
+    c.name: c
+    for c in (
+        MinfileConnector,
+        MtoTenureConnector,
+        ArisIndexConnector,
+        RgsConnector,
+        NrcanGeophysicsConnector,
+    )
 }

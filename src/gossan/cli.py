@@ -9,10 +9,13 @@ import typer
 
 from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
 from gossan.core.config import AOI_FILE, ProjectConfig
-from gossan.core.ingest import IngestError, ingest_vector
+from gossan.core.ingest import IngestError
+from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
 from gossan.harvest import CONNECTORS
+from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
+from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
 from gossan.report.builder import build_report
 
 app = typer.Typer(
@@ -113,39 +116,82 @@ def harvest(
         str | None,
         typer.Option(
             help="Comma-separated sources to harvest. "
-            f"Available: {', '.join(CONNECTORS)}. Default: all."
+            f"Available: {', '.join(CONNECTORS)}. "
+            f"Default: {', '.join(n for n, c in CONNECTORS.items() if c.default)}."
         ),
     ] = None,
+    limit_pdfs: Annotated[
+        int,
+        typer.Option(
+            min=0,
+            help="Download up to this many ARIS report PDFs (newest first) from the aris_index "
+            "layer into raw/aris_pdfs/. 0 (default) downloads none; reports can be tens of MB.",
+        ),
+    ] = 0,
 ) -> None:
-    """Download public data for the project AOI into data.gpkg.
+    """Download public data for the project AOI into data.gpkg and rasters/.
 
     Originals are kept in raw/ and every retrieval is logged to provenance.jsonl.
+    A source that fails does not stop the others; the command exits 1 if any failed.
 
     Manual fallback: if a source is unavailable, download the data yourself and load
-    it with 'gossan ingest'.
+    it with 'gossan ingest' (vector files and .tif grids). nrcan_geophysics needs a
+    configured WCS (see its module docs) and otherwise prints manual instructions.
     """
     proj = _open_project(project)
-    names = [s.strip() for s in source.split(",") if s.strip()] if source else list(CONNECTORS)
+    names = (
+        [s.strip() for s in source.split(",") if s.strip()]
+        if source
+        else [n for n, c in CONNECTORS.items() if c.default]
+    )
     unknown = [n for n in names if n not in CONNECTORS]
     if unknown:
         raise typer.BadParameter(f"unknown source(s): {', '.join(unknown)}", param_hint="--source")
+
+    failed = False
     for n in names:
+        connector = CONNECTORS[n](proj)
         try:
-            count = CONNECTORS[n](proj).run()
+            count = connector.run()
+        except ManualDownloadRequired as e:
+            typer.secho(f"{n}: {e}", fg="yellow", err=True)
+            failed = True
         except OSError as e:  # network failures (URLError is an OSError)
             typer.secho(f"Error: {n}: {e}", fg="red", err=True)
             typer.echo("Fallback: download the data manually and use 'gossan ingest'.", err=True)
+            failed = True
+        else:
+            typer.echo(f"{n}: {count} {connector.output_description}")
+
+    if limit_pdfs:
+        try:
+            result = ArisPdfDownloader(proj).run(limit_pdfs)
+        except FileNotFoundError as e:
+            typer.secho(f"Error: {e}", fg="red", err=True)
             raise typer.Exit(1) from e
-        typer.echo(f"{n}: {count} feature(s) written to data.gpkg")
+        typer.echo(
+            f"aris_pdfs: {len(result.downloaded)} downloaded, {result.skipped_existing} already "
+            f"present, {len(result.failed)} failed, {result.remaining} more not fetched "
+            "(raise --limit-pdfs)"
+        )
+        for number, reason in result.failed:
+            typer.secho(f"  ARIS {number}: {reason}", fg="yellow", err=True)
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command()
 def ingest(
     project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
     file_path: Annotated[
-        Path, typer.Argument(exists=True, dir_okay=False, readable=True, help="Local vector file.")
+        Path,
+        typer.Argument(
+            exists=True, dir_okay=False, readable=True, help="Local vector file or .tif raster."
+        ),
     ],
-    layer: Annotated[str, typer.Option("--layer", help="Layer name to write in data.gpkg.")],
+    layer: Annotated[
+        str, typer.Option("--layer", help="Layer name in data.gpkg, or raster name in rasters/.")
+    ],
     source: Annotated[
         str, typer.Option(help="Who supplied the data, for provenance and the report.")
     ] = "user-supplied",
@@ -153,24 +199,26 @@ def ingest(
         str, typer.Option(help="Licence or terms of the data, for provenance and the report.")
     ] = "unspecified (user-supplied)",
     overwrite: Annotated[
-        bool, typer.Option("--overwrite", help="Replace the layer if it already exists.")
+        bool, typer.Option("--overwrite", help="Replace the layer or raster if it exists.")
     ] = False,
 ) -> None:
-    """Load a local vector file (shp, geojson, gpkg, ...) into data.gpkg.
+    """Load a local file into the project; the manual fallback for any harvest source.
 
-    The file is reprojected to the project CRS and clipped to the AOI. A copy of the
-    original goes to raw/ingest/ and the ingest is logged to provenance.jsonl. This is
-    the manual fallback for any harvest source. The file must have a CRS defined.
+    Vector files (shp, geojson, gpkg, ...) are reprojected to the project CRS, clipped
+    to the AOI and written to data.gpkg. A .tif raster is clipped, reprojected and
+    written as a Cloud Optimized GeoTIFF to rasters/<layer>.tif. A copy of the original
+    goes to raw/ingest/ and the ingest is logged to provenance.jsonl. The file must
+    have a CRS defined.
     """
     proj = _open_project(project)
     try:
-        count = ingest_vector(
+        message = ingest_file(
             proj, file_path, layer, source=source, license=license, overwrite=overwrite
         )
     except IngestError as e:
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
-    typer.echo(f"{layer}: {count} feature(s) written to data.gpkg")
+    typer.echo(message)
 
 
 @app.command()

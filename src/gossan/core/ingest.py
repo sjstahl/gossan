@@ -1,4 +1,4 @@
-"""Manual ingest of a local vector file into ``data.gpkg`` (fallback for failed harvests)."""
+"""Manual ingest of a local vector or raster file (fallback for failed harvests)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ import re
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import pyogrio
 
 from gossan.core.project import Project
+from gossan.core.raster import RASTER_SUFFIXES, RasterError, raster_path, write_cog
 
 LAYER_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
@@ -20,7 +22,7 @@ class IngestError(Exception):
     """The file cannot be ingested; the message says why."""
 
 
-def ingest_vector(
+def ingest(
     project: Project,
     path: Path,
     layer: str,
@@ -28,16 +30,25 @@ def ingest_vector(
     source: str = "user-supplied",
     license: str = "unspecified (user-supplied)",
     overwrite: bool = False,
-) -> int:
-    """Clip ``path`` to the AOI, reproject to the project CRS and write it as ``layer``.
+) -> str:
+    """Ingest a vector file into ``data.gpkg`` or a ``.tif`` into ``rasters/``.
 
-    A copy of the original goes to ``raw/ingest/<layer>/`` (with shapefile sidecars)
-    and a provenance record is written. Returns the number of features written.
+    Either way the data are clipped to the AOI and put in the project CRS, a copy of
+    the original goes to ``raw/ingest/<layer>/`` and a provenance record is written.
+    Returns a one-line description of the result.
     """
     if not LAYER_NAME.match(layer):
-        raise IngestError(f"invalid layer name {layer!r}: use letters, digits and underscores")
+        raise IngestError(f"invalid name {layer!r}: use letters, digits and underscores")
     if not path.is_file():
         raise IngestError(f"{path} is not a file")
+    if path.suffix.lower() in RASTER_SUFFIXES:
+        return _ingest_raster(project, path, layer, source, license, overwrite)
+    return _ingest_vector(project, path, layer, source, license, overwrite)
+
+
+def _ingest_vector(
+    project: Project, path: Path, layer: str, source: str, license: str, overwrite: bool
+) -> str:
     if (
         project.data_gpkg.exists()
         and not overwrite
@@ -56,14 +67,58 @@ def ingest_vector(
     if clipped.empty:
         raise IngestError(f"no features in {path.name} intersect the AOI; nothing written")
 
+    now, raw = _copy_original(project, path, layer)
+    clipped.to_file(project.data_gpkg, layer=layer, driver="GPKG", engine="pyogrio")
+    facts = {
+        "kind": "vector",
+        "source_crs": source_crs,
+        "n_read": n_read,
+        "n_written": len(clipped),
+        "clipped_to_aoi": True,
+    }
+    _log(project, path, layer, source, license, now, raw, facts)
+    return f"{layer}: {len(clipped)} feature(s) written to data.gpkg"
+
+
+def _ingest_raster(
+    project: Project, path: Path, layer: str, source: str, license: str, overwrite: bool
+) -> str:
+    dst = raster_path(project, layer)
+    if dst.exists() and not overwrite:
+        raise IngestError(f"raster {dst.name!r} already exists in rasters/ (use --overwrite)")
+    try:
+        facts = write_cog(project, path, dst)
+    except RasterError as e:
+        raise IngestError(str(e)) from e
+
+    now, raw = _copy_original(project, path, layer)
+    output = dst.relative_to(project.root).as_posix()
+    facts = {"kind": "raster", "output": output, "clipped_to_aoi": True, **facts}
+    _log(project, path, layer, source, license, now, raw, facts)
+    return f"{layer}: COG written to {output}"
+
+
+def _copy_original(project: Project, path: Path, layer: str) -> tuple[datetime, Path]:
+    """Keep an untouched copy under ``raw/ingest/<layer>/<timestamp>/``."""
     now = datetime.now(UTC)
     raw = project.raw_dir / "ingest" / layer / f"{now:%Y%m%dT%H%M%S%fZ}"
     raw.mkdir(parents=True)
     copies = list(path.parent.glob(f"{path.stem}.*")) if path.suffix.lower() == ".shp" else [path]
     for f in copies:  # a shapefile is several files sharing a stem
         shutil.copy2(f, raw / f.name)
+    return now, raw
 
-    clipped.to_file(project.data_gpkg, layer=layer, driver="GPKG", engine="pyogrio")
+
+def _log(
+    project: Project,
+    path: Path,
+    layer: str,
+    source: str,
+    license: str,
+    now: datetime,
+    raw: Path,
+    parameters: dict[str, Any],
+) -> None:
     project.provenance.log(
         dataset=layer,
         source=source,
@@ -76,11 +131,7 @@ def ingest_vector(
             "original_path": str(path.resolve()),
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "raw_copy": raw.relative_to(project.root).as_posix(),
-            "source_crs": source_crs,
             "project_crs": project.config.crs,
-            "n_read": n_read,
-            "n_written": len(clipped),
-            "clipped_to_aoi": True,
+            **parameters,
         },
     )
-    return len(clipped)

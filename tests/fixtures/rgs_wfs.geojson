@@ -1,0 +1,5 @@
+{"type":"FeatureCollection","features":[
+{"type":"Feature","id":"c.1","geometry":{"type":"Point","coordinates":[-120.31,50.705]},"geometry_name":"GEOMETRY","properties":{"MASTER_ID":"92I990001","MATERIAL":"Stream sediment  ","STREAM_ORDER":"Secondary","COPPER_AAS_PPM":66,"GOLD_INAA_PPB":2,"ZINC_AAS_PPM":null,"WHEN_CREATED":"2014-12-17Z","OBJECTID":1}},
+{"type":"Feature","id":"c.2","geometry":{"type":"Point","coordinates":[-120.285,50.725]},"geometry_name":"GEOMETRY","properties":{"MASTER_ID":"92I990002","MATERIAL":"Moss mat","STREAM_ORDER":"Primary","COPPER_AAS_PPM":12,"GOLD_INAA_PPB":null,"ZINC_AAS_PPM":103,"WHEN_CREATED":"2014-12-17Z","OBJECTID":2}},
+{"type":"Feature","id":"c.3","geometry":{"type":"Point","coordinates":[-120.10,50.90]},"geometry_name":"GEOMETRY","properties":{"MASTER_ID":"92I990003","MATERIAL":"Stream sediment","STREAM_ORDER":"Primary","COPPER_AAS_PPM":5,"GOLD_INAA_PPB":1,"ZINC_AAS_PPM":50,"WHEN_CREATED":"2014-12-17Z","OBJECTID":3}}
+],"totalFeatures":3,"numberMatched":3,"numberReturned":3}

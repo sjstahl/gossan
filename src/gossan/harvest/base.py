@@ -34,11 +34,15 @@ class Connector(ABC):
 
     #: Short name used by ``gossan harvest --source``.
     name: str
-    #: Layer written to ``data.gpkg``.
+    #: Layer written to ``data.gpkg`` (or the raster product name).
     layer: str
     #: Who publishes the data, and under which licence (recorded in provenance).
     source: str
     license: str
+    #: Whether a plain ``gossan harvest`` runs this connector.
+    default: bool = True
+    #: How the CLI describes ``run()``'s count.
+    output_description: str = "feature(s) written to data.gpkg"
 
     def __init__(self, project: Project) -> None:
         self.project = project
@@ -52,8 +56,12 @@ class Connector(ABC):
         """Download items into ``raw/`` and log each retrieval to provenance."""
 
     @abstractmethod
-    def load(self, files: list[Path]) -> gpd.GeoDataFrame:
-        """Read fetched files into a GeoDataFrame in the project CRS, clipped to the AOI."""
+    def load(self, files: list[Path]) -> gpd.GeoDataFrame | list[Path]:
+        """Turn fetched files into project data.
+
+        Vector sources return a GeoDataFrame in the project CRS, selected to the AOI.
+        Raster sources write COGs under ``rasters/`` and return their paths.
+        """
 
     def run(self) -> int:
         """Search, fetch, load and write the layer to ``data.gpkg``; return the feature count.
