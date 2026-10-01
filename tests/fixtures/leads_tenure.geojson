@@ -1,0 +1,356 @@
+{
+"type": "FeatureCollection",
+"features": [
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1001,
+"CLAIM_NAME": "RECENT NEW",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2026-03-01Z",
+"GOOD_TO_DATE": "2027-03-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "NEW OWNER LTD"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.319,
+50.71
+],
+[
+-120.315,
+50.71
+],
+[
+-120.315,
+50.72
+],
+[
+-120.319,
+50.72
+],
+[
+-120.319,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1002,
+"CLAIM_NAME": "OLD RICH",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2005-01-01Z",
+"GOOD_TO_DATE": "2027-01-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "OLD OWNER INC"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.31400000000001,
+50.71
+],
+[
+-120.31,
+50.71
+],
+[
+-120.31,
+50.72
+],
+[
+-120.31400000000001,
+50.72
+],
+[
+-120.31400000000001,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1003,
+"CLAIM_NAME": "RECENT RICH",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2025-12-01Z",
+"GOOD_TO_DATE": "2026-12-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "BUSY CO"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.309,
+50.71
+],
+[
+-120.30499999999999,
+50.71
+],
+[
+-120.30499999999999,
+50.72
+],
+[
+-120.309,
+50.72
+],
+[
+-120.309,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1004,
+"CLAIM_NAME": "MID",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2024-01-15Z",
+"GOOD_TO_DATE": "2027-01-15Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "MID CO"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.304,
+50.71
+],
+[
+-120.3,
+50.71
+],
+[
+-120.3,
+50.72
+],
+[
+-120.304,
+50.72
+],
+[
+-120.304,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1005,
+"CLAIM_NAME": "LAPSED",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2010-01-01Z",
+"GOOD_TO_DATE": "2026-05-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "GONE LTD"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.299,
+50.71
+],
+[
+-120.295,
+50.71
+],
+[
+-120.295,
+50.72
+],
+[
+-120.299,
+50.72
+],
+[
+-120.299,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1006,
+"CLAIM_NAME": "PLACER ONE",
+"TENURE_TYPE_DESCRIPTION": "Placer",
+"ISSUE_DATE": "2026-04-01Z",
+"GOOD_TO_DATE": "2027-04-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "PLACER CO"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.294,
+50.71
+],
+[
+-120.28999999999999,
+50.71
+],
+[
+-120.28999999999999,
+50.72
+],
+[
+-120.294,
+50.72
+],
+[
+-120.294,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1007,
+"CLAIM_NAME": "JOINT",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2022-06-01Z",
+"GOOD_TO_DATE": "2027-06-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "JOINT A"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.289,
+50.71
+],
+[
+-120.285,
+50.71
+],
+[
+-120.285,
+50.72
+],
+[
+-120.289,
+50.72
+],
+[
+-120.289,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1007,
+"CLAIM_NAME": "JOINT",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": "2022-06-01Z",
+"GOOD_TO_DATE": "2027-06-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "JOINT B"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.289,
+50.71
+],
+[
+-120.285,
+50.71
+],
+[
+-120.285,
+50.72
+],
+[
+-120.289,
+50.72
+],
+[
+-120.289,
+50.71
+]
+]
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"TENURE_NUMBER_ID": 1008,
+"CLAIM_NAME": "NO DATE",
+"TENURE_TYPE_DESCRIPTION": "Mineral",
+"ISSUE_DATE": null,
+"GOOD_TO_DATE": "2027-01-01Z",
+"AREA_IN_HECTARES": 100.0,
+"OWNER_NAME": "MYSTERY"
+},
+"geometry": {
+"type": "Polygon",
+"coordinates": [
+[
+[
+-120.284,
+50.71
+],
+[
+-120.28,
+50.71
+],
+[
+-120.28,
+50.72
+],
+[
+-120.284,
+50.72
+],
+[
+-120.284,
+50.71
+]
+]
+]
+}
+}
+]
+}

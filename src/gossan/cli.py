@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 
@@ -16,12 +17,19 @@ from gossan.core.provenance import ProvenanceLog
 from gossan.harvest import CONNECTORS
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
 from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
+from gossan.leads.generator import run_leads
+from gossan.leads.pack import LeadNotFoundError, build_pack
+from gossan.leads.scoring import MissingLayerError
 from gossan.report.builder import build_report
 
 app = typer.Typer(
     help="Gossan: turn a claim polygon into client-ready deliverables.",
     no_args_is_help=True,
 )
+
+
+leads_app = typer.Typer(help="Find and package properties likely to need digitization.", no_args_is_help=True)
+app.add_typer(leads_app, name="leads")
 
 
 @app.callback()
@@ -228,4 +236,55 @@ def report(
     """Build outputs/map.png and outputs/report.docx (a draft for geologist review)."""
     proj = _open_project(project)
     path = build_report(proj)
+    typer.echo(f"Wrote {path}")
+
+
+@leads_app.command("run")
+def leads_run(
+    project: Annotated[Path, typer.Argument(help="Project folder with mto_tenure and aris_index.")],
+    as_of: Annotated[
+        str | None,
+        typer.Option(help="Score as of this date (YYYY-MM-DD) to reproduce a run. Default: today."),
+    ] = None,
+) -> None:
+    """Score tenures and write outputs/leads_ranked.csv and the 'leads' layer in data.gpkg.
+
+    Needs the mto_tenure and aris_index layers: run 'gossan harvest --source
+    mto_tenure,aris_index' first, or load them with 'gossan ingest'. Weights live in
+    project.yaml under parameters: leads: (see gossan.leads.scoring). Leads use ARIS
+    data, which is Access Only: keep the outputs internal.
+    """
+    proj = _open_project(project)
+    try:
+        when = date.fromisoformat(as_of) if as_of else None
+    except ValueError as e:
+        raise typer.BadParameter("use YYYY-MM-DD", param_hint="--as-of") from e
+    try:
+        result = run_leads(proj, when)
+    except MissingLayerError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    leads = result.leads
+    typer.echo(f"{len(leads)} lead(s) scored; wrote {result.csv_path} and the 'leads' layer")
+    for r in leads.head(5).itertuples():
+        name = r.claim_name if isinstance(r.claim_name, str) else "(unnamed)"
+        typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({r.aris_count} ARIS)")
+
+
+@leads_app.command("pack")
+def leads_pack(
+    project: Annotated[Path, typer.Argument(help="Project folder where 'gossan leads run' was run.")],
+    lead_id: Annotated[str, typer.Argument(help="Tenure number of the lead (lead_id in the CSV).")],
+) -> None:
+    """Write a summary document of a lead and its ARIS reports to outputs/.
+
+    A skeleton: it lists the property and the reports available, and does not read the
+    PDFs (digitization comes later). It is an internal draft because ARIS is Access Only.
+    """
+    proj = _open_project(project)
+    try:
+        path = build_pack(proj, lead_id)
+    except (MissingLayerError, LeadNotFoundError) as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
     typer.echo(f"Wrote {path}")

@@ -1,0 +1,214 @@
+{
+"type": "FeatureCollection",
+"features": [
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 501,
+"REPORT_YEAR": 1965,
+"ASSESSMENT_REPORT_TITLE": "Report 501",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/501"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.312,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 502,
+"REPORT_YEAR": 1972,
+"ASSESSMENT_REPORT_TITLE": "Report 502",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/502"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.312,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 503,
+"REPORT_YEAR": 1985,
+"ASSESSMENT_REPORT_TITLE": "Report 503",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/503"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.312,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 504,
+"REPORT_YEAR": 1998,
+"ASSESSMENT_REPORT_TITLE": "Report 504",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/504"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.312,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 511,
+"REPORT_YEAR": 1960,
+"ASSESSMENT_REPORT_TITLE": "Report 511",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/511"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.307,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 512,
+"REPORT_YEAR": 1995,
+"ASSESSMENT_REPORT_TITLE": "Report 512",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/512"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.307,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 513,
+"REPORT_YEAR": 2010,
+"ASSESSMENT_REPORT_TITLE": "Report 513",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/513"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.307,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 521,
+"REPORT_YEAR": 1980,
+"ASSESSMENT_REPORT_TITLE": "Report 521",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/521"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.302,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 531,
+"REPORT_YEAR": 1970,
+"ASSESSMENT_REPORT_TITLE": "Report 531",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/531"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.297,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 532,
+"REPORT_YEAR": 1999,
+"ASSESSMENT_REPORT_TITLE": "Report 532",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/532"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.297,
+50.715
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"ARIS_NUMBER": 541,
+"REPORT_YEAR": 1990,
+"ASSESSMENT_REPORT_TITLE": "Report 541",
+"OPERATOR_NAMES": "Test Co.",
+"GENERAL_WORK_TYPES": "Drilling",
+"PROPERTY_NAME": "P",
+"ARIS_REPORT_URL": "https://apps.nrs.gov.bc.ca/pub/aris/detail/541"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-120.3,
+50.725
+]
+}
+}
+]
+}

@@ -77,3 +77,16 @@ def aris_pdfs(monkeypatch) -> FakeAris:
     monkeypatch.setattr(ArisPdfDownloader, "_download", fake_download)
     monkeypatch.setattr("gossan.harvest.bc.aris_pdf.PAUSE_SECONDS", 0.0)
     return fake
+
+
+@pytest.fixture
+def seed_leads_layers(fixtures_dir):
+    """Write the mocked tenure and ARIS fixtures into a project's data.gpkg."""
+    import geopandas as gpd
+
+    def seed(project) -> None:
+        for fixture, layer in (("leads_tenure", "mto_tenure"), ("leads_aris", "aris_index")):
+            gdf = gpd.read_file(fixtures_dir / f"{fixture}.geojson").to_crs(project.config.crs)
+            gdf.to_file(project.data_gpkg, layer=layer, driver="GPKG", engine="pyogrio")
+
+    return seed
