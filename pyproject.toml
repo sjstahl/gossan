@@ -23,6 +23,8 @@ dependencies = [
     "pdfplumber",
     "anthropic",
     "opencv-python-headless",
+    "scikit-learn",
+    "scipy",
     "pyproj",
 ]
 

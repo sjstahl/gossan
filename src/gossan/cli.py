@@ -48,6 +48,7 @@ from gossan.leads.generator import run_leads
 from gossan.leads.pack import LeadNotFoundError, build_pack
 from gossan.leads.scoring import MissingLayerError
 from gossan.report.builder import build_report
+from gossan.target.run import TargetError, run_target
 
 app = typer.Typer(
     help="Gossan: turn a claim polygon into client-ready deliverables.",
@@ -606,6 +607,72 @@ def review_reject(
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
     typer.echo(f"Rejected {item.item_id} ({item.type}, ARIS {item.report})")
+
+
+@app.command("target")
+def target_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder with harvested layers.")],
+    resolution: Annotated[
+        float | None,
+        typer.Option(
+            "--resolution", min=0.001,
+            help="Grid cell size in metres (project CRS). Default: target.resolution_m in project.yaml (100).",
+        ),
+    ] = None,
+    n_bags: Annotated[int | None, typer.Option(min=2, help="PU-bagging rounds. Default: target.n_bags (25).")] = None,
+    folds: Annotated[int | None, typer.Option(min=2, help="Spatial CV folds. Default: target.folds (5).")] = None,
+    seed: Annotated[int | None, typer.Option(help="Random seed. Default: target.seed (42).")] = None,
+    cv: Annotated[
+        bool, typer.Option("--cv/--no-cv", help="Run spatial cross-validation (slower; reports how well it generalises).")
+    ] = True,
+) -> None:
+    """Rank the AOI by prospectivity: a PU-bagging random forest on harvested layers.
+
+    Known MINFILE occurrences in the AOI are the positives; every other cell is unlabeled, not
+    barren. Features are built from whatever the project has (tenure, ARIS report density, RGS
+    geochemistry, regional geophysics rasters, distance to occurrences); missing layers are
+    skipped and listed. Needs at least target.min_positives (10) occurrences inside the AOI, so
+    use a regional AOI. Writes target/prospectivity.tif (a relative score, not a probability of
+    a deposit), target/uncertainty.tif (spread across bags), target/targets.gpkg (the top
+    percentile as polygons), feature_stack.tif, feature_importance.csv, cv_report.json and
+    grid.json, and logs the run to provenance. The ARIS index is Access Only: keep outputs internal.
+    """
+    proj = _open_project(project)
+    overrides = {
+        k: v
+        for k, v in {"resolution_m": resolution, "n_bags": n_bags, "folds": folds, "seed": seed}.items()
+        if v is not None
+    }
+    cfg = proj.config.target.model_copy(update=overrides)
+    try:
+        r = run_target(proj, cfg, cross_validate=cv)
+    except TargetError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+
+    g = r.grid
+    d = g.describe()
+    typer.echo(
+        f"Grid: {g.width} x {g.height} cells ({d['n_cells_bbox']:,}) at {g.resolution:g} m in {g.crs}; "
+        f"{g.n_cells:,} cells ({d['area_km2']} km2) inside the AOI"
+    )
+    typer.echo(f"Known occurrences used as positives: {len(r.stack.positives)}")
+    typer.echo(f"Features ({len(r.stack.model_names)}): {', '.join(r.stack.model_names)}")
+    for name, reason in r.stack.skipped.items():
+        typer.secho(f"  skipped {name}: {reason}", fg="yellow")
+    if r.cv is not None:
+        if r.cv["folds"]:
+            typer.echo(
+                f"Spatial CV ({r.cv['n_folds_scored']} fold(s)): AUC {r.cv['auc_mean']:.2f} +/- {r.cv['auc_std']:.2f}, "
+                f"top-5% capture {r.cv['capture_top5_mean']:.0%} +/- {r.cv['capture_top5_std']:.0%} (random: 5%)"
+            )
+        for note in r.cv["skipped"]:
+            typer.secho(f"  CV: {note}", fg="yellow")
+    typer.echo(f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile (score {r.threshold:.3f})")
+    for key, rel in r.outputs.items():
+        if key == "targets" and not r.n_targets:
+            continue
+        typer.echo(f"  {key}: {rel}")
 
 
 @leads_app.command("run")

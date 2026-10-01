@@ -57,6 +57,44 @@ class SatelliteConfig(BaseModel):
     aster_collection: str = "AST_L1T_004"
 
 
+class TargetConfig(BaseModel):
+    """Settings for prospectivity modelling (``gossan target``). See ``gossan.target``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Grid cell size in metres (``--resolution`` overrides it).
+    resolution_m: float = Field(default=100.0, gt=0)
+    #: Refuse a grid with more cells than this (bounding box); raise the resolution instead.
+    max_cells: int = Field(default=2_000_000, ge=1)
+    #: PU-bagging: number of bags, trees per bag, minimum samples per leaf.
+    n_bags: int = Field(default=25, ge=2)
+    n_trees: int = Field(default=100, ge=5)
+    min_samples_leaf: int = Field(default=3, ge=1)
+    #: Unlabeled cells drawn per positive in each bag.
+    unlabeled_ratio: float = Field(default=1.0, gt=0)
+    #: Spatial cross-validation folds, block edge (metres; default: a quarter of the AOI's
+    #: shorter side) and the gap left between test blocks and training cells.
+    folds: int = Field(default=5, ge=2)
+    block_size_m: float | None = Field(default=None, gt=0)
+    cv_buffer_m: float = Field(default=0.0, ge=0)
+    #: Fewest known occurrences inside the AOI that a model may be trained on.
+    min_positives: int = Field(default=10, ge=3)
+    seed: int = 42
+    #: Cells at or above this percentile of the probability surface become target polygons.
+    top_percentile: float = Field(default=95.0, gt=0, lt=100)
+    #: Neighbourhood for tenure density and the ARIS report-density kernel (metres).
+    density_radius_m: float = Field(default=1000.0, gt=0)
+    #: RGS geochemistry interpolation: search radius (metres) and neighbours.
+    idw_radius_m: float = Field(default=10_000.0, gt=0)
+    idw_neighbours: int = Field(default=8, ge=1)
+    geochem_elements: list[str] = [
+        "COPPER", "GOLD", "SILVER", "ZINC", "LEAD", "ARSENIC", "MOLYBDENUM", "ANTIMONY",
+    ]  # fmt: skip
+    #: A feature with more than this fraction of the AOI missing is dropped; the rest are
+    #: filled with the feature's median.
+    max_missing_fraction: float = Field(default=0.6, ge=0, le=1)
+
+
 class ProjectConfig(BaseModel):
     """Contents of a project's ``project.yaml``."""
 
@@ -70,6 +108,7 @@ class ProjectConfig(BaseModel):
     modules: list[Module] = Field(default_factory=lambda: [Module.HARVEST, Module.REPORT])
     georef: GeorefConfig = Field(default_factory=GeorefConfig)
     satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
+    target: TargetConfig = Field(default_factory=TargetConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")
