@@ -9,6 +9,10 @@ import typer
 
 from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
 from gossan.core.config import AOI_FILE, ProjectConfig
+from gossan.core.project import Project
+from gossan.core.provenance import ProvenanceLog
+from gossan.harvest import CONNECTORS
+from gossan.report.builder import build_report
 
 app = typer.Typer(
     help="Gossan: turn a claim polygon into client-ready deliverables.",
@@ -66,6 +70,8 @@ def new(
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
 
+    gdf_source_crs = gdf.crs.to_string()
+    reprojected = project
     zone, utm_crs = utm_zone_for(gdf)
     if not project:
         config.crs, config.utm_zone = gdf.crs.to_string(), None
@@ -79,4 +85,57 @@ def new(
     project_dir.mkdir(parents=True)
     write_aoi(gdf, project_dir / AOI_FILE)
     config.save(project_dir)
+    ProvenanceLog(project_dir).log(
+        dataset="aoi",
+        source="user-supplied",
+        identifier=aoi.name,
+        url=None,
+        license="Client-supplied; confidential",
+        operation="import_aoi",
+        parameters={"source_crs": gdf_source_crs, "project_crs": config.crs, "reprojected": reprojected},
+    )
     typer.echo(f"Created project {name} (CRS {config.crs})")
+
+
+def _open_project(path: Path) -> Project:
+    try:
+        return Project(path)
+    except FileNotFoundError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+
+
+@app.command()
+def harvest(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+    source: Annotated[
+        str,
+        typer.Option(help=f"Comma-separated sources to harvest. Available: {', '.join(CONNECTORS)}."),
+    ] = "minfile",
+) -> None:
+    """Download public data for the project AOI into data.gpkg.
+
+    Originals are kept in raw/ and every retrieval is logged to provenance.jsonl.
+    """
+    proj = _open_project(project)
+    names = [s.strip() for s in source.split(",") if s.strip()]
+    unknown = [n for n in names if n not in CONNECTORS]
+    if unknown:
+        raise typer.BadParameter(f"unknown source(s): {', '.join(unknown)}", param_hint="--source")
+    for n in names:
+        try:
+            count = CONNECTORS[n](proj).run()
+        except OSError as e:  # network failures (URLError is an OSError)
+            typer.secho(f"Error: {n}: {e}", fg="red", err=True)
+            raise typer.Exit(1) from e
+        typer.echo(f"{n}: {count} feature(s) written to data.gpkg")
+
+
+@app.command()
+def report(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+) -> None:
+    """Build outputs/map.png and outputs/report.docx (a draft for geologist review)."""
+    proj = _open_project(project)
+    path = build_report(proj)
+    typer.echo(f"Wrote {path}")

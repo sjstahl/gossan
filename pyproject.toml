@@ -14,6 +14,8 @@ dependencies = [
     "geopandas",
     "shapely",
     "pyogrio",
+    "python-docx",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
