@@ -1,9 +1,16 @@
 """Drillhole and assay tables from scanned pages, read by Claude vision.
 
-This sends page images to the Anthropic API, which costs money and sends page content to a
-third party. It only runs when asked for explicitly (``--extract-scanned-tables``) on pages
-you name (``--target-pages``). Credentials come from the ``ANTHROPIC_API_KEY`` environment
-variable; the model from ``GOSSAN_CLAUDE_MODEL`` (default ``DEFAULT_MODEL``).
+This sends page images to OpenRouter (which forwards them to Anthropic), which costs money
+and sends page content to two third parties. It only runs when asked for explicitly
+(``--extract-scanned-tables``) on pages you name (``--target-pages``). Credentials come from
+the ``OPENROUTER_API_KEY`` environment variable; the model from ``GOSSAN_CLAUDE_MODEL``
+(default ``DEFAULT_MODEL``, in OpenRouter's ``vendor/model`` format).
+
+OpenRouter's ``https://openrouter.ai/api/v1`` is its OpenAI-style chat endpoint. The Anthropic
+SDK talks the Messages protocol, which OpenRouter serves at ``https://openrouter.ai/api`` (the
+SDK adds ``/v1/messages`` itself), so that is the base URL used here, with the key sent as a
+bearer token. The structured-output call (``messages.parse``) has not been run against
+OpenRouter from this code; OpenRouter lists structured-output support for the Claude models.
 
 The reply is constrained to the ``PageTable`` schema (structured outputs), so it always
 parses, but the *values* are a model's reading of a scan and can be wrong (digits, decimal
@@ -35,7 +42,10 @@ from gossan.digitize.pages import DEFAULT_DPI, page_image_path, render_page
 from gossan.digitize.text import DERIVED_LICENSE
 
 MODEL_ENV = "GOSSAN_CLAUDE_MODEL"
-DEFAULT_MODEL = "claude-opus-5-5"
+KEY_ENV = "OPENROUTER_API_KEY"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+DEFAULT_MODEL = "anthropic/claude-opus-5.5"
+PROVIDER = "OpenRouter (Claude vision)"
 #: Hard ceiling on pages sent in one run, so a typo in --target-pages cannot run up a bill.
 MAX_PAGES_PER_RUN = 25
 FEET_TO_M = 0.3048
@@ -86,10 +96,15 @@ class PageTable(BaseModel):
 
 
 def make_client() -> anthropic.Anthropic:
-    """An Anthropic client using ``ANTHROPIC_API_KEY``."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise ClaudeVisionError("ANTHROPIC_API_KEY is not set")
-    return anthropic.Anthropic()
+    """An Anthropic SDK client routed through OpenRouter, using ``OPENROUTER_API_KEY``.
+
+    The key goes in the ``Authorization: Bearer`` header; ``api_key=None`` keeps the SDK from
+    also sending a stray ``ANTHROPIC_API_KEY`` from the environment to OpenRouter.
+    """
+    key = os.environ.get(KEY_ENV)
+    if not key:
+        raise ClaudeVisionError(f"{KEY_ENV} is not set")
+    return anthropic.Anthropic(base_url=OPENROUTER_BASE_URL, auth_token=key, api_key=None)
 
 
 def model_name() -> str:
@@ -223,6 +238,7 @@ def extract_scanned_tables(
             "page": page,
             "page_image": image.relative_to(project.root).as_posix(),
             "model": model,
+            "provider": "openrouter",
             "table_type": table.table_type,
             "depth_unit_printed": table.depth_unit,
             "converted_feet_to_m": flat.converted_from_feet,
@@ -236,7 +252,7 @@ def extract_scanned_tables(
             result.no_table.append(page)
             project.provenance.log(
                 dataset="aris_tables_scanned",
-                source="Anthropic API (Claude vision)",
+                source=PROVIDER,
                 identifier=f"ARIS {aris_number} p{page}",
                 url=None,
                 license=DERIVED_LICENSE,
@@ -253,7 +269,7 @@ def extract_scanned_tables(
         rel_csv = csv_path.relative_to(project.root).as_posix()
         project.provenance.log(
             dataset="aris_tables_scanned",
-            source="Anthropic API (Claude vision)",
+            source=PROVIDER,
             identifier=f"ARIS {aris_number} p{page}",
             url=None,
             license=DERIVED_LICENSE,

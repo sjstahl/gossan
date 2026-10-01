@@ -284,8 +284,8 @@ def digitize_cmd(
         bool,
         typer.Option(
             "--extract-scanned-tables",
-            help="Send the --target-pages page images to Claude (Anthropic API: costs money, "
-            "needs ANTHROPIC_API_KEY) to read drillhole/assay tables. Results go to "
+            help="Send the --target-pages page images to Claude (via OpenRouter: costs money, "
+            "needs OPENROUTER_API_KEY) to read drillhole/assay tables. Results go to "
             "digitize/tables/scanned/ and the review queue as PENDING.",
         ),
     ] = False,

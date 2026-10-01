@@ -109,6 +109,7 @@ def no_real_ocr_or_claude(monkeypatch):
         raise AssertionError("a test tried to create a live Anthropic client")
 
     monkeypatch.setattr(claude_vision.anthropic, "Anthropic", forbidden)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("GOSSAN_CLAUDE_MODEL", raising=False)
 
@@ -190,6 +191,6 @@ def fake_claude(monkeypatch) -> FakeClaude:
             ),
         ],
     )  # fmt: skip
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key-not-real")
     monkeypatch.setattr(claude_vision, "make_client", lambda: fake)
     return fake

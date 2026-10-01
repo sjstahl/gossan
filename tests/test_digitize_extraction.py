@@ -174,7 +174,7 @@ def test_scanned_table_goes_through_claude_to_csv_and_review_queue(scan_project,
 
     # One API call, for the targeted page only, with that page's image and a schema.
     (call,) = fake_claude.calls
-    assert call["model"] == "claude-opus-5-5"
+    assert call["model"] == "anthropic/claude-opus-5.5"
     assert call["output_format"] is PageTable
     assert "never infer" in call["system"]
     image_block = call["messages"][0]["content"][0]
@@ -203,8 +203,8 @@ def test_scanned_table_goes_through_claude_to_csv_and_review_queue(scan_project,
 
     # Provenance: model, tokens, and that nobody has reviewed it yet.
     record = next(r for r in scan_project.provenance.read() if r.operation == "extract_scanned_table")
-    assert record.source == "Anthropic API (Claude vision)"
-    assert record.parameters["model"] == "claude-opus-5-5"
+    assert record.source == "OpenRouter (Claude vision)"
+    assert record.parameters["model"] == "anthropic/claude-opus-5.5"
     assert record.parameters["reviewed"] is False
     assert record.parameters["page_image"] == "digitize/pages/00077_p2.png"
     assert record.parameters["output"] == "digitize/tables/scanned/00077_p2.csv"
@@ -218,10 +218,10 @@ def test_scanned_table_goes_through_claude_to_csv_and_review_queue(scan_project,
 
 
 def test_model_can_be_overridden_by_env(scan_project, fake_claude, monkeypatch):
-    monkeypatch.setenv("GOSSAN_CLAUDE_MODEL", "claude-sonnet-5-5")
+    monkeypatch.setenv("GOSSAN_CLAUDE_MODEL", "anthropic/claude-sonnet-5.5")
     args = ["digitize", "demo", "--report", "77", "--target-pages", "2", "--extract-scanned-tables"]
     assert runner.invoke(app, args).exit_code == 0
-    assert fake_claude.calls[0]["model"] == "claude-sonnet-5-5"
+    assert fake_claude.calls[0]["model"] == "anthropic/claude-sonnet-5.5"
 
 
 def test_claude_is_never_called_by_default(scan_project, fake_claude):
@@ -267,7 +267,7 @@ def test_more_than_25_pages_refused(project, fake_claude, tmp_path):
 def test_missing_api_key_is_a_clear_error(scan_project):
     args = ["digitize", "demo", "--report", "77", "--target-pages", "2", "--extract-scanned-tables"]
     result = runner.invoke(app, args)  # no key, and the live client is blocked
-    assert result.exit_code == 1 and "ANTHROPIC_API_KEY is not set" in result.output
+    assert result.exit_code == 1 and "OPENROUTER_API_KEY is not set" in result.output
     assert review.read_queue(scan_project) == []
 
 
@@ -358,3 +358,22 @@ def test_old_queue_without_image_column_is_upgraded_not_lost(project):
     assert (item.item_id, item.note, item.image) == ("R0001", "old item", "")
     new = review.add_item(project, 8038, "table", page=5, source="a.csv", image="a.png")
     assert new.item_id == "R0002" and len(review.read_queue(project)) == 2
+
+
+def test_client_is_routed_through_openrouter(monkeypatch):
+    """The real client factory, with the SDK constructor replaced to capture its arguments."""
+    from gossan.digitize import claude_vision
+
+    captured = {}
+    monkeypatch.setattr(claude_vision.anthropic, "Anthropic", lambda **kw: captured.update(kw) or "client")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-be-used")
+    assert claude_vision.make_client() == "client"
+    assert captured == {
+        "base_url": "https://openrouter.ai/api",  # the SDK appends /v1/messages
+        "auth_token": "sk-or-test",
+        "api_key": None,
+    }
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    with pytest.raises(ClaudeVisionError, match="OPENROUTER_API_KEY is not set"):
+        claude_vision.make_client()  # an ANTHROPIC_API_KEY alone is not accepted
