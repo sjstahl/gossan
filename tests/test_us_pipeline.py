@@ -5,6 +5,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pymupdf
 import pytest
 import rasterio
@@ -111,15 +112,69 @@ def test_the_report_for_a_us_project_has_no_aris_marking_and_uses_us_names(nevad
     assert "12 mineral/placer tenure(s)" in text and "Claims are BLM MLRS cases that are not closed" in text
     assert "Status not recorded in the source data" in text and "no issue dates" in text
     assert "Prospectivity targeting" in text and "known MRDS occurrences" in text
-    assert "Lead scoring is not available" in text
+    assert "Lead scoring is not available" in text  # until 'gossan leads run'
     rec = [r for r in nevada.provenance.read() if r.operation == "build_report_pdf"][-1]
     assert rec.parameters["aris_marking"] is False and "Public domain" in rec.license
 
 
-def test_lead_scoring_explains_that_it_is_a_bc_feature(nevada):
+def test_us_leads_need_the_target_polygons_first(nevada):
     result = runner.invoke(app, ["leads", "run", "nv"])
-    assert result.exit_code == 1
-    assert "British Columbia dataset" in result.output and "not available for this project" in result.output
+    assert result.exit_code == 1 and "gossan target" in result.output
+
+
+def test_us_leads_score_on_spatial_evidence_only(nevada):
+    assert runner.invoke(app, ["target", "nv", "--resolution", "500", "--n-bags", "3", "--no-cv"]).exit_code == 0
+    result = runner.invoke(app, ["leads", "run", "nv"])
+    assert result.exit_code == 0, result.output
+    assert "12 lead(s) scored" in result.output and "in targets" in result.output
+    csv = pd.read_csv(nevada.outputs_dir / "leads_ranked.csv")
+    assert len(csv) == 12 and csv["rank"].tolist() == list(range(1, 13))
+    for absent in ("issue_date", "good_to_date", "recency_points", "aris_count"):
+        assert absent not in csv.columns
+    assert np.allclose(csv["score"], csv["overlap_points"] + csv["proximity_points"], atol=0.02)
+    assert csv["score"].is_monotonic_decreasing and csv["score"].between(0, 100).all()
+    assert csv["overlap_points"].between(0, 60).all() and csv["proximity_points"].between(0, 40).all()
+    layer = gpd.read_file(nevada.data_gpkg, layer="leads")
+    assert len(layer) == 12 and layer.crs.to_epsg() == 32611
+    rec = [r for r in nevada.provenance.read() if r.operation == "write_leads_csv"][-1]
+    assert "Access Only" not in rec.license and rec.parameters["scoring"] == "us_spatial"
+
+
+def test_us_lead_scores_follow_overlap_and_proximity():
+    from shapely.geometry import Point, box
+
+    from gossan.leads.scoring_us import UsLeadsConfig, score_us_leads
+
+    def claim(i, x0):
+        return {"TENURE_NUMBER_ID": i, "CLAIM_NAME": f"C{i}", "TENURE_TYPE_DESCRIPTION": "Lode", "OWNER_NAME": None,
+                "AREA_IN_HECTARES": 100.0, "geometry": box(x0, 0, x0 + 1000, 1000)}  # fmt: skip
+
+    claims = gpd.GeoDataFrame([claim(1, 0), claim(2, 5000), claim(3, 20000)], crs="EPSG:32611")
+    targets = gpd.GeoDataFrame(geometry=[box(0, 0, 500, 1000)], crs="EPSG:32611")  # half of claim 1
+    occ = gpd.GeoDataFrame(geometry=[Point(500, 500), Point(6500, 500)], crs="EPSG:32611")
+    out = score_us_leads(claims, targets, occ, UsLeadsConfig()).set_index("lead_id")
+    assert out.loc["1", "target_overlap_pct"] == 50 and out.loc["1", "overlap_points"] == 30
+    assert out.loc["1", "occurrences_inside"] == 1 and out.loc["1", "proximity_points"] == 40
+    assert out.loc["2", "overlap_points"] == 0 and out.loc["2", "proximity_points"] == 30  # 500 m of 2000 m away
+    assert out.loc["3", "score"] == 0 and out.index.tolist()[0] == "1"
+    assert claims is not None and score_us_leads(claims, targets.iloc[0:0], occ.iloc[0:0], UsLeadsConfig())["score"].eq(0).all()
+
+
+def test_us_lead_pack_and_report_use_spatial_wording(nevada):
+    assert runner.invoke(app, ["target", "nv", "--resolution", "500", "--n-bags", "3", "--no-cv"]).exit_code == 0
+    assert runner.invoke(app, ["leads", "run", "nv"]).exit_code == 0
+    top = str(pd.read_csv(nevada.outputs_dir / "leads_ranked.csv").loc[0, "lead_id"])
+    result = runner.invoke(app, ["leads", "pack", "nv", top])
+    assert result.exit_code == 0, result.output
+    from docx import Document
+
+    text = "\n".join(p.text for p in Document(str(nevada.outputs_dir / f"lead_{top}_pack.docx")).paragraphs)
+    assert "quarter-section" in text and "MRDS is a historical inventory" in text and "Access Only" not in text
+    assert runner.invoke(app, ["report", "nv", "--lead", top]).exit_code == 0
+    doc = pymupdf.open(nevada.outputs_dir / "report.pdf")
+    flat = "\n".join(p.get_text() for p in doc).replace("\n", " ")
+    assert "scored out of 100 on spatial evidence only" in flat and "Featured lead" in flat
+    assert "Lead scoring is not available" not in flat and "ARIS" not in flat
 
 
 def test_a_bc_project_is_unaffected(aoi_file, wfs):

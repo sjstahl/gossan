@@ -168,6 +168,17 @@ Every command and dataset is also recorded in `<project>/provenance.jsonl`.
 
 ---
 
+## US projects (Nevada, Arizona)
+
+When the AOI lies in the United States, `gossan new` sets `jurisdiction: us` and picks the UTM zone; harvest then downloads **USGS MRDS** occurrences and **BLM MLRS** mining claims instead of the BC sources. Read the results with these limits in mind:
+
+- **BLM claims are quarter-section geocodes, not exact survey boundaries.** Each claim polygon is the PLSS quarter section(s) the claim is recorded against. It can be much larger or smaller than the staked ground, and its edges are only approximate. Do not use claim overlap or distances for legal or staking decisions.
+- **MRDS is a historical inventory.** USGS has not systematically updated it since 2011, and coordinates come from many sources of varying quality. Treat MRDS points as "documented past occurrences", not current activity or complete coverage. They are the positives the model learns from, so recent discoveries are missing.
+- **BLM MLRS has no issue date, good-to date or claimant.** Those fields are empty in `mto_tenure`.
+- **Lead scoring works differently.** After `gossan target`, `gossan leads run <name>` scores each claim on two spatial signals only: how much of it lies inside the target polygons (`target/targets.gpkg`), and how close it is to an MRDS occurrence. Recency and expiry are skipped. See [Tutorial 3](03_Review_and_Reporting.md#leads-on-us-projects).
+
+---
+
 ## 8. Re-run or adjust
 
 **Change the resolution on an existing project** (no re-drawing):

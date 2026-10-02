@@ -254,6 +254,19 @@ A section without its data says which command produces it. If items are still pe
 
 ---
 
+## Leads on US projects
+
+`gossan leads run <name>` works on US projects once `gossan target` has run. BLM MLRS has no `ISSUE_DATE` or `GOOD_TO_DATE`, so the recency and expiry scoring used for BC is skipped. Each claim gets up to 100 points:
+
+- **Up to 60** for the share of the claim that overlaps the target polygons (`target/targets.gpkg`).
+- **Up to 40** for proximity to MRDS occurrences: full marks with an occurrence on the claim, falling to zero at 2 km.
+
+Change the weights under `parameters: leads:` in `project.yaml` (`overlap_points`, `proximity_points`, `proximity_m`). The CSV has columns `target_overlap_pct`, `nearest_occurrence_m` and `occurrences_inside` instead of the ARIS and date columns. `gossan leads pack` and `gossan report --lead` work too.
+
+**Caveats:** BLM claims are resolved to **quarter-section geocodes, not exact survey boundaries**, so overlap and distances are approximate. **MRDS is a historical inventory** (not systematically updated since 2011), so proximity means "near a documented occurrence", not "near current activity".
+
+---
+
 ## Data governance: ARIS "Access Only"
 
 ### What it means
@@ -274,7 +287,11 @@ In practice, **treat the whole pitch pack as ARIS-derived.**
 - A red disclaimer banner on page 1.
 - A footer on every page: `INTERNAL DRAFT | Contains ARIS data (Access Only): not for distribution`.
 - The PDF's metadata subject: `INTERNAL DRAFT - contains ARIS data (Access Only)`.
-- An ARIS notice in the *Notices* section of every pack, whatever else it contains.
+- An ARIS notice in the *Notices* section of every marked pack.
+
+### When the marking applies (fail-safe)
+
+The marking is applied when ARIS data is recorded in `provenance.jsonl` **or** when anything with `aris` in its name (any case) exists in the project's `raw/`, `rasters/` or `digitize/` folders, or as a layer in `data.gpkg`. The files win over the ledger: if the ledger is missing or incomplete, the pack is still marked. A US-only project with no such files gets a plain draft footer instead. Rename or remove the stray file if the marking is a false alarm; the PDF's provenance record lists what triggered it (`aris_evidence`).
 
 ### What you must do
 

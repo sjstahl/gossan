@@ -18,11 +18,13 @@ import geopandas as gpd
 import pandas as pd
 from docx import Document
 
+from gossan.core.licensing import derived_license
 from gossan.core.project import Project
 from gossan.harvest.bc_provincial.aris_pdf import RAW_DIR as ARIS_PDF_DIR
-from gossan.leads.generator import DERIVED_LICENSE, LEADS_LAYER
+from gossan.leads.generator import DERIVED_LICENSE, LEADS_LAYER, is_us_leads
 from gossan.leads.samples import add_before_after
 from gossan.leads.scoring import ARIS_LAYER, MissingLayerError, read_layer
+from gossan.report.licensing import project_includes_aris
 
 
 class LeadNotFoundError(Exception):
@@ -45,6 +47,8 @@ def build_pack(project: Project, lead_id: str) -> Path:
     if match.empty:
         raise LeadNotFoundError(f"lead {lead_id!r} not found; see outputs/leads_ranked.csv")
     lead = match.iloc[0]
+    if is_us_leads(leads):
+        return _build_us_pack(project, lead, leads.crs)
     aris = read_layer(project, ARIS_LAYER).to_crs(leads.crs)
     reports = reports_for_lead(lead, aris)
 
@@ -134,5 +138,70 @@ def build_pack(project: Project, lead_id: str) -> Path:
             "n_approved_tables": samples.n_tables,
             "n_pending_items": samples.n_pending,
         },
+    )
+    return path
+
+
+def _build_us_pack(project: Project, lead: gpd.GeoSeries, crs: object) -> Path:
+    """One-claim summary for a US lead: the claim, its spatial score, and nearby MRDS occurrences."""
+    includes_aris = project_includes_aris(project)
+    occ = read_layer(project, "minfile").to_crs(crs)
+    near = occ[occ.distance(lead.geometry) <= 2000].copy()
+    near["distance_m"] = near.distance(lead.geometry).round(0)
+    near = near.sort_values("distance_m").head(25)
+
+    doc = Document()
+    doc.add_heading(f"Lead {lead['lead_id']}: {lead['claim_name']}", level=0)
+    if includes_aris:
+        doc.add_paragraph(
+            "INTERNAL DRAFT. This project holds ARIS data (Access Only): do not send to a prospect "
+            "without the Province's written permission."
+        )
+    else:
+        doc.add_paragraph("DRAFT. Machine-generated: for geologist review before use.")
+    doc.add_paragraph(
+        "BLM claims are resolved to quarter-section geocodes, not surveyed claim boundaries, and "
+        "MRDS is a historical inventory (not systematically updated since 2011). The score is spatial "
+        "only: BLM MLRS has no issue or expiry dates, so recency is not scored."
+    )
+    doc.add_heading("Claim", level=1)
+    fields = [
+        ("Type", lead["tenure_type"]), ("Area (ha)", lead["area_ha"]),
+        ("Lead rank / score", f"{lead['rank']} / {lead['score']}"),
+        ("Target overlap (% of claim)", lead["target_overlap_pct"]),
+        ("Target overlap points", lead["overlap_points"]),
+        ("Nearest MRDS occurrence (m)", lead["nearest_occurrence_m"]),
+        ("MRDS occurrences on the claim", lead["occurrences_inside"]),
+        ("Proximity points", lead["proximity_points"]),
+    ]  # fmt: skip
+    table = doc.add_table(rows=0, cols=2, style="Light List")
+    for label, value in fields:
+        cells = table.add_row().cells
+        cells[0].text, cells[1].text = label, "" if pd.isna(value) else str(value)
+
+    doc.add_heading("MRDS occurrences within 2 km", level=1)
+    if near.empty:
+        doc.add_paragraph("No MRDS occurrences within 2 km of this claim.")
+    else:
+        table = doc.add_table(rows=1, cols=3, style="Light List")
+        for cell, head in zip(table.rows[0].cells, ["Site", "Distance (m)", "Status"], strict=True):
+            cell.text = head
+        for r in near.itertuples():
+            row = table.add_row().cells
+            values = [getattr(r, "MINFILE_NAME1", ""), r.distance_m, getattr(r, "STATUS_DESCRIPTION", "")]
+            for cell, value in zip(row, values, strict=True):
+                cell.text = "" if pd.isna(value) else str(value)
+
+    project.outputs_dir.mkdir(exist_ok=True)
+    path = project.outputs_dir / f"lead_{lead['lead_id']}_pack.docx"
+    doc.save(path)
+    project.provenance.log(
+        dataset="lead_pack",
+        source="gossan",
+        identifier=f"outputs/{path.name}",
+        url=None,
+        license=derived_license(project.provenance.read(), includes_aris=includes_aris),
+        operation="build_lead_pack",
+        parameters={"lead_id": str(lead["lead_id"]), "scoring": "us_spatial", "n_occurrences_listed": len(near)},
     )
     return path

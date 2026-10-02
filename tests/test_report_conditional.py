@@ -183,3 +183,59 @@ def test_a_bare_project_without_provenance_of_aris_is_unmarked(make_project):
     assert all(PLAIN_FOOTER in page.get_text() for page in doc) and "INTERNAL DRAFT" not in text
     assert "Tenure information is not available" in text and "No digitized samples have been approved yet." in text
     assert "No licence notices apply beyond the sources listed above." in text
+
+
+# --- fail-safe: files named *aris* mark the report even when the ledger says nothing -----------
+
+
+@pytest.mark.parametrize("relative", ["raw/aris_pdfs/ARIS_00001.pdf", "raw/ARIS_notes.txt", "rasters/old_Aris_map.tif", "digitize/text/aris_12.txt", "raw/some_aris_dir/x.csv"])
+def test_an_aris_file_marks_the_report_even_with_a_clean_ledger(make_project, relative):
+    project = make_project(layers=("minfile", "mto_tenure"), raster=False, n_occ=30)
+    log_us_sources(project)
+    path = project.root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x")
+    assert not uses_aris(project.provenance.read())
+    doc = build_pdf(project)
+    assert all(MARKED_FOOTER in page.get_text() for page in doc)
+    assert "INTERNAL DRAFT - NOT FOR DISTRIBUTION" in doc[0].get_text().replace("\n", " ")
+    rec = [r for r in project.provenance.read() if r.operation == "build_report_pdf"][-1]
+    assert rec.parameters["aris_marking"] is True and any(e.startswith("file ") for e in rec.parameters["aris_evidence"])
+    assert "Access Only" in rec.license
+
+
+def test_an_aris_layer_name_marks_the_report(make_project):
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    project = make_project(layers=("minfile",), raster=False, n_occ=30)
+    log_us_sources(project)
+    gpd.GeoDataFrame({"ARIS_NUMBER": [1], "REPORT_YEAR": [1985]}, geometry=[Point(0, 0)], crs="EPSG:4326").to_file(project.data_gpkg, layer="aris_index", driver="GPKG")
+    assert all(MARKED_FOOTER in page.get_text() for page in build_pdf(project))
+
+
+def test_outputs_and_unrelated_names_do_not_trigger_the_failsafe(make_project):
+    project = make_project(layers=("minfile",), raster=False, n_occ=30)
+    log_us_sources(project)
+    (project.outputs_dir).mkdir(exist_ok=True)
+    (project.outputs_dir / "aris_summary.txt").write_text("x")  # made by Gossan, not a data directory
+    (project.root / "raw").mkdir(exist_ok=True)
+    (project.root / "raw" / "mrds").mkdir(exist_ok=True)
+    (project.root / "raw" / "blm_claims_20260101.geojson").write_text("{}")
+    doc = build_pdf(project)
+    assert all(PLAIN_FOOTER in page.get_text() for page in doc)
+
+
+def test_decide_marking_reports_ledger_and_file_evidence(make_project):
+    from gossan.report.licensing import decide_marking
+
+    project = make_project(layers=(), raster=False)
+    assert decide_marking(project).marked is False
+    (project.root / "raw").mkdir(exist_ok=True)
+    (project.root / "raw" / "ARIS_1.pdf").write_bytes(b"x")
+    m = decide_marking(project)
+    assert m.marked and m.from_files_only and m.evidence == ["file raw/ARIS_1.pdf"]
+    log_us_sources(project)
+    project.provenance.log(dataset="aris_index", source="BC ARIS", identifier="a", license="Access Only", **US_FETCH)
+    m = decide_marking(project)
+    assert m.marked and not m.from_files_only and m.evidence[0] == "dataset aris_index"

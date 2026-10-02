@@ -753,7 +753,7 @@ def target_cmd(
 
 @leads_app.command("run")
 def leads_run(
-    project: Annotated[Path, typer.Argument(help="Project folder with mto_tenure and aris_index.")],
+    project: Annotated[Path, typer.Argument(help="Project folder with mto_tenure and aris_index (US: also needs 'gossan target' output).")],
     as_of: Annotated[
         str | None,
         typer.Option(help="Score as of this date (YYYY-MM-DD) to reproduce a run. Default: today."),
@@ -765,6 +765,13 @@ def leads_run(
     mto_tenure,aris_index' first, or load them with 'gossan ingest'. Weights live in
     project.yaml under parameters: leads: (see gossan.leads.scoring). Leads use ARIS
     data, which is Access Only: keep the outputs internal.
+
+    US projects (BLM claims, MRDS occurrences) are scored differently: BLM MLRS has no issue
+    or good-to dates, so recency and expiry are skipped. Claims score on overlap with the
+    'gossan target' polygons (target/targets.gpkg) and proximity to MRDS occurrences. Run
+    'gossan target' first. BLM claims are quarter-section geocodes, not surveyed boundaries;
+    MRDS is a historical inventory. Weights: parameters: leads: overlap_points,
+    proximity_points, proximity_m.
     """
     proj = _open_project(project)
     try:
@@ -780,7 +787,10 @@ def leads_run(
     typer.echo(f"{len(leads)} lead(s) scored; wrote {result.csv_path} and the 'leads' layer")
     for r in leads.head(5).itertuples():
         name = r.claim_name if isinstance(r.claim_name, str) else "(unnamed)"
-        typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({r.aris_count} ARIS)")
+        detail = (
+            f"{r.target_overlap_pct:g}% in targets" if hasattr(r, "overlap_points") else f"{r.aris_count} ARIS"
+        )
+        typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({detail})")
 
 
 @leads_app.command("pack")

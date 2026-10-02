@@ -50,12 +50,13 @@ from reportlab.platypus import (
 )
 
 from gossan import __version__
-from gossan.core.licensing import aris_evidence, derived_license
+from gossan.core.licensing import derived_license
 from gossan.core.project import Project
 from gossan.leads.pack import reports_for_lead
 from gossan.leads.samples import SampleEntry, collect_samples
 from gossan.report.assets import finite_range, layer_or_none, overview_map, raster_map
 from gossan.report.builder import data_sources
+from gossan.report.licensing import decide_marking
 
 PDF_NAME = "report.pdf"
 ASSETS_DIR = "report_assets"
@@ -245,7 +246,7 @@ def gather(project: Project, lead_id: str | None, assets: Path) -> tuple[Facts, 
         target=_target_info(project),
         samples=entries,
         n_pending=pending,
-        aris_evidence=aris_evidence(records),
+        aris_evidence=decide_marking(project).evidence,
         occurrence_label="MRDS" if any(k in latest_source.get("minfile", "") for k in ("MRDS", "Mineral Resources Data System")) else "MINFILE",
         tenure_is_blm="BLM" in latest_source.get("mto_tenure", ""),
     )
@@ -300,7 +301,7 @@ def _sec_summary(project: Project, f: Facts, lead_id: str | None, st: dict, toda
     if f.leads is not None and len(f.leads):
         top = f.leads.iloc[0]
         name = top["claim_name"] if isinstance(top["claim_name"], str) else "unnamed tenure"
-        bullets.append(f"{len(f.leads)} tenure(s) scored as leads; the highest is {escape(name)} (tenure {escape(str(top['lead_id']))}, score {top['score']:g}).")
+        bullets.append(f"{len(f.leads)} {'claim(s)' if 'overlap_points' in f.leads.columns else 'tenure(s)'} scored as leads; the highest is {escape(name)} (tenure {escape(str(top['lead_id']))}, score {top['score']:g}).")
     if f.target is not None:
         g = f.target["grid"]
         line = f"Prospectivity model: {g['n_cells_in_aoi']:,} cells at {g['resolution_m']:g} m, trained on {g['n_known_occurrences_in_aoi']} known occurrences"
@@ -361,10 +362,41 @@ def _sec_property(project: Project, f: Facts, st: dict, assets: Path, today: dat
     return out
 
 
+def _sec_leads_us(f: Facts, lead_id: str | None, st: dict) -> list:
+    """US leads: scored on spatial evidence only (no issue or expiry dates exist in BLM MLRS)."""
+    out: list = [
+        Paragraph(
+            "Each claim is scored out of 100 on spatial evidence only: points for the share of the claim that lies inside "
+            "the prospectivity targets, and for how close it is to a known MRDS occurrence. BLM MLRS records no issue or "
+            "expiry dates, so recency is not scored. Claims are resolved to quarter-section geocodes, not surveyed "
+            "boundaries, and MRDS is a historical inventory, so overlap and distances are approximate. "
+            "A high score marks a claim worth a closer look; it is not a judgement of mineral potential.",
+            st["body"],
+        )
+    ]
+    rows: list[list[object]] = [["Rank", "Claim", "Case", "Score", "Target overlap", "Nearest MRDS"]]
+    for r in f.leads.head(10).itertuples():
+        near = "" if pd.isna(r.nearest_occurrence_m) else f"{r.nearest_occurrence_m:,.0f} m"
+        rows.append([r.rank, r.claim_name, r.lead_id, f"{r.score:g}", f"{r.target_overlap_pct:g}%", near])
+    out.append(_table(rows, [0.4 * inch, 2.0 * inch, 1.2 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch], st))
+    out.append(Paragraph(f"Top {min(10, len(f.leads))} of {len(f.leads)} scored claims. Full list: outputs/leads_ranked.csv.", st["small"]))
+    if lead_id is not None:
+        row = f.leads[f.leads["lead_id"] == str(lead_id)].iloc[0]
+        out.append(Paragraph(f"Featured lead: {escape(str(lead_id))}", st["h2"]))
+        facts = [
+            ["Claim", row["claim_name"]], ["Type", row["tenure_type"]], ["Area", f"{row['area_ha']} ha"],
+            ["Score", f"{row['score']:g} (rank {row['rank']}; target overlap {row['overlap_points']:g}, MRDS proximity {row['proximity_points']:g})"],
+        ]  # fmt: skip
+        out.append(_table(facts, [1.4 * inch, CONTENT_W - 1.4 * inch], st, header=False))
+    return out
+
+
 def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: dict) -> list:
     out: list = [Paragraph("Lead scoring", st["h1"])]
     if f.leads is None:
         return out + _not_available(st, "Lead scoring", "gossan leads run")
+    if "overlap_points" in f.leads.columns:
+        return out + _sec_leads_us(f, lead_id, st)
     out.append(
         Paragraph(
             "Each tenure is scored out of 100: points for how recently it was issued, for the number of assessment "
