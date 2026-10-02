@@ -45,8 +45,8 @@ def _finish(fig, ax, dest: Path, crs: str, dpi: int = 130) -> Path:
     return dest
 
 
-def overview_map(project: Project, dest: Path) -> Path:
-    """The AOI with tenure, ARIS report locations and MINFILE occurrences."""
+def overview_map(project: Project, dest: Path, label: str = "MINFILE") -> Path:
+    """The AOI with tenure, ARIS report locations (if harvested) and the mineral occurrences (``label``)."""
     crs = project.config.crs
     aoi = project.read_aoi()
     fig, ax = plt.subplots(figsize=(6.5, 5.0))
@@ -62,7 +62,7 @@ def overview_map(project: Project, dest: Path) -> Path:
     minfile = layer_or_none(project.data_gpkg, "minfile")
     if minfile is not None:
         minfile.to_crs(crs).plot(ax=ax, color=OCCURRENCE_COLOUR, edgecolor="black", markersize=22, zorder=4)
-        handles.append(plt.Line2D([], [], marker="o", linestyle="", markerfacecolor=OCCURRENCE_COLOUR, markeredgecolor="black", label=f"MINFILE occurrence ({len(minfile)})"))
+        handles.append(plt.Line2D([], [], marker="o", linestyle="", markerfacecolor=OCCURRENCE_COLOUR, markeredgecolor="black", label=f"{label} occurrence ({len(minfile)})"))
     aoi.boundary.plot(ax=ax, color=AOI_COLOUR, linewidth=1.6)
     handles.insert(0, plt.Line2D([], [], color=AOI_COLOUR, linewidth=1.6, label="Area of interest"))
     minx, miny, maxx, maxy = aoi.total_bounds

@@ -26,7 +26,7 @@ CSV_COLUMNS = [
     "aris_count", "aris_legacy_count", "aris_earliest_year", "aris_latest_year",
     "aris_per_km2", "aris_numbers",
 ]  # fmt: skip
-# Leads carry ARIS-derived values, and ARIS is Access Only (see harvest/bc/aris.py).
+# Leads carry ARIS-derived values, and ARIS is Access Only (see harvest/bc_provincial/aris.py).
 DERIVED_LICENSE = (
     "Derived product from mto_tenure (OGL-BC) and aris_index (Access Only): internal use only"
 )

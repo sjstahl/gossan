@@ -11,7 +11,13 @@ import pymupdf
 import typer
 from typer.core import TyperGroup
 
-from gossan.core.aoi import read_aoi, utm_zone_for, write_aoi
+from gossan.core.aoi import (
+    detect_jurisdiction,
+    read_aoi,
+    utm_zone_for,
+    utm_zones_spanned,
+    write_aoi,
+)
 from gossan.core.config import AOI_FILE, ProjectConfig
 from gossan.core.ingest import IngestError
 from gossan.core.ingest import ingest as ingest_file
@@ -40,8 +46,8 @@ from gossan.digitize.review import (
 )
 from gossan.digitize.tables import extract_digital_tables
 from gossan.digitize.text import extract_text, page_ranges
-from gossan.harvest import CONNECTORS
-from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
+from gossan.harvest import CONNECTORS, default_sources
+from gossan.harvest.bc_provincial.aris_pdf import ArisPdfDownloader
 from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
 from gossan.harvest.satellite.stac import SatelliteAuthError
 from gossan.leads.generator import run_leads
@@ -91,11 +97,23 @@ def new(
         ),
     ] = True,
     client: Annotated[str | None, typer.Option(help="Client name to record.")] = None,
+    jurisdiction: Annotated[
+        str,
+        typer.Option(
+            "--jurisdiction",
+            help="Whose data sources 'gossan harvest' uses: bc or us. Default auto: from the AOI "
+            "centroid (BC, or the contiguous US); needed elsewhere, otherwise bc is assumed.",
+        ),
+    ] = "auto",
 ) -> None:
     """Create a project folder with aoi.gpkg and a default project.yaml.
 
-    If the AOI file has no CRS, assign one in QGIS first (manual fallback).
+    The project CRS is the WGS84 UTM zone of the AOI centroid (any zone, either hemisphere); if
+    the AOI straddles two zones a warning says so. If the AOI file has no CRS, assign one in QGIS
+    first (manual fallback).
     """
+    if jurisdiction not in {"auto", "bc", "us"}:
+        raise typer.BadParameter("use auto, bc or us", param_hint="--jurisdiction")
     project_dir = Path(name)
     try:
         config = ProjectConfig(name=name, client=client, crs="EPSG:0")
@@ -114,6 +132,27 @@ def new(
     gdf_source_crs = gdf.crs.to_string()
     reprojected = project
     zone, utm_crs = utm_zone_for(gdf)
+    zones = utm_zones_spanned(gdf)
+    if len(zones) > 1 and project and crs is None:
+        typer.secho(
+            f"Warning: the AOI spans UTM zones {' and '.join(map(str, zones))}; using zone {zone} (the "
+            "centroid's). Distances far from that zone's central meridian are slightly distorted; "
+            "pass --crs for a different projection.",
+            fg="yellow",
+            err=True,
+        )
+    if jurisdiction == "auto":
+        detected = detect_jurisdiction(gdf)
+        if detected is None:
+            typer.secho(
+                "Warning: could not tell the AOI's jurisdiction; assuming bc. Pass --jurisdiction us "
+                "(or bc) to choose the data sources.",
+                fg="yellow",
+                err=True,
+            )
+        config.jurisdiction = detected or "bc"
+    else:
+        config.jurisdiction = jurisdiction  # type: ignore[assignment]
     if not project:
         config.crs, config.utm_zone = gdf.crs.to_string(), None
     elif crs is not None:
@@ -133,9 +172,15 @@ def new(
         url=None,
         license="Client-supplied; confidential",
         operation="import_aoi",
-        parameters={"source_crs": gdf_source_crs, "project_crs": config.crs, "reprojected": reprojected},
+        parameters={
+            "source_crs": gdf_source_crs,
+            "project_crs": config.crs,
+            "reprojected": reprojected,
+            "jurisdiction": config.jurisdiction,
+            "utm_zones_spanned": zones,
+        },
     )
-    typer.echo(f"Created project {name} (CRS {config.crs})")
+    typer.echo(f"Created project {name} (CRS {config.crs}, jurisdiction {config.jurisdiction})")
 
 
 def _open_project(path: Path) -> Project:
@@ -153,8 +198,8 @@ def harvest(
         str | None,
         typer.Option(
             help="Comma-separated sources to harvest. "
-            f"Available: {', '.join(CONNECTORS)}. "
-            f"Default: {', '.join(n for n, c in CONNECTORS.items() if c.default)}."
+            f"Available: {', '.join(CONNECTORS)}. Default: the project's jurisdiction "
+            f"(bc: {', '.join(default_sources('bc'))}; us: {', '.join(default_sources('us'))})."
         ),
     ] = None,
     limit_pdfs: Annotated[
@@ -192,7 +237,7 @@ def harvest(
     names = (
         [s.strip() for s in source.split(",") if s.strip()]
         if source
-        else [n for n, c in CONNECTORS.items() if c.default]
+        else default_sources(proj.config.jurisdiction)
     )
     unknown = [n for n in names if n not in CONNECTORS]
     if unknown:
@@ -200,6 +245,9 @@ def harvest(
 
     failed = False
     for n in names:
+        other = getattr(CONNECTORS[n], "jurisdiction", "any")
+        if other not in ("any", proj.config.jurisdiction):
+            typer.secho(f"Note: {n} is a {other} source and this is a {proj.config.jurisdiction} project.", fg="yellow", err=True)
         connector = CONNECTORS[n](proj)
         if hasattr(connector, "limit_scenes"):
             connector.limit_scenes = limit_scenes

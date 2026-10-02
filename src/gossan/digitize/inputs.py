@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from gossan.core.project import Project
-from gossan.harvest.bc.aris_pdf import RAW_DIR
+from gossan.harvest.bc_provincial.aris_pdf import RAW_DIR
 
 PDF_NAME = re.compile(r"^ARIS_(\d+)\.pdf$", re.IGNORECASE)
 INSUFFICIENT_PDFS = "no ARIS PDFs in raw/aris_pdfs; download some with 'gossan harvest --limit-pdfs N'"

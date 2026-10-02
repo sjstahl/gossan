@@ -1,0 +1,75 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": 105,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.22,
+       39.22
+      ],
+      [
+       -117.21,
+       39.22
+      ],
+      [
+       -117.21,
+       39.23
+      ],
+      [
+       -117.22,
+       39.23
+      ],
+      [
+       -117.22,
+       39.22
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 105,
+    "ID": "809142547606777805",
+    "CSE_NAME": "NO SERIAL",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 20.0,
+    "Created": 1612915200000
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 106,
+   "geometry": null,
+   "properties": {
+    "OBJECTID": 106,
+    "ID": "809142547606777806",
+    "CSE_NAME": "NO GEOMETRY",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223777",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 20.0,
+    "Created": 1612915200000
+   }
+  }
+ ]
+}

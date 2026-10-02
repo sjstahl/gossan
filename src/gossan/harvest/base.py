@@ -41,6 +41,8 @@ class Connector(ABC):
     license: str
     #: Whether a plain ``gossan harvest`` runs this connector.
     default: bool = True
+    #: Which projects run it by default: "bc", "us", or "any" (works anywhere).
+    jurisdiction: str = "any"
     #: How the CLI describes ``run()``'s count.
     output_description: str = "feature(s) written to data.gpkg"
 

@@ -2,7 +2,7 @@
 
 Access method: the DataBC public WFS, layer
 ``pub:WHSE_MINERAL_TENURE.ARIS_MINERAL_REPORTS`` ("Assessment Report Index System
-(ARIS) Database"); see ``gossan.harvest.bc.wfs`` for the request details. Each feature
+(ARIS) Database"); see ``gossan.harvest.bc_provincial.wfs`` for the request details. Each feature
 is one report, as a point at the report's property location (not a footprint), with
 year, operator, work types, claim names and ``ARIS_REPORT_URL``. This connector does
 not download report PDFs.
@@ -23,7 +23,7 @@ in client deliverables.
 
 from __future__ import annotations
 
-from gossan.harvest.bc.wfs import WfsConnector
+from gossan.harvest.bc_provincial.wfs import WfsConnector
 
 
 class ArisIndexConnector(WfsConnector):

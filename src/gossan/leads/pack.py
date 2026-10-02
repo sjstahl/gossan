@@ -19,7 +19,7 @@ import pandas as pd
 from docx import Document
 
 from gossan.core.project import Project
-from gossan.harvest.bc.aris_pdf import RAW_DIR as ARIS_PDF_DIR
+from gossan.harvest.bc_provincial.aris_pdf import RAW_DIR as ARIS_PDF_DIR
 from gossan.leads.generator import DERIVED_LICENSE, LEADS_LAYER
 from gossan.leads.samples import add_before_after
 from gossan.leads.scoring import ARIS_LAYER, MissingLayerError, read_layer

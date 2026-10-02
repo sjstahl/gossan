@@ -1,0 +1,185 @@
+"""The internal-draft marking and Access Only disclaimer apply only when ARIS data is in the project."""
+
+import pymupdf
+import pytest
+from synthetic import build_project, runner
+
+from gossan.cli import app
+from gossan.core.licensing import (
+    ARIS_DERIVED_LICENSE,
+    aris_evidence,
+    derived_license,
+    uses_aris,
+)
+from gossan.core.project import Project
+from gossan.core.provenance import ProvenanceRecord
+from gossan.report import pdf as report_pdf
+
+MARKED_FOOTER = report_pdf.FOOTER
+PLAIN_FOOTER = report_pdf.PLAIN_FOOTER
+US_FETCH = {
+    "url": "u",
+    "operation": "fetch",
+    "parameters": {},
+}
+
+
+def record(**kw) -> ProvenanceRecord:
+    base = {"dataset": "minfile", "source": "USGS", "identifier": "x", "url": None, "license": "Public domain", "operation": "fetch"}
+    return ProvenanceRecord(**{**base, **kw})
+
+
+@pytest.fixture
+def make_project(tmp_path):
+    def build(**kw) -> Project:
+        return build_project(tmp_path, **kw)
+
+    return build
+
+
+def log_us_sources(project: Project) -> None:
+    project.provenance.log(
+        dataset="minfile", source="USGS Mineral Resources Data System (mrdata WFS)", identifier="mrds-high",
+        license="Public domain (U.S. Government work, USGS)", **US_FETCH,
+    )  # fmt: skip
+    project.provenance.log(
+        dataset="mto_tenure", source="BLM Mineral and Land Record System, mining claims not closed (NLSDB ArcGIS REST)",
+        identifier="x", license="Public domain (U.S. Government work, BLM); provided as is", **US_FETCH,
+    )  # fmt: skip
+
+
+def build_pdf(project: Project) -> pymupdf.Document:
+    result = runner.invoke(app, ["report", str(project.root)])
+    assert result.exit_code == 0, result.output
+    return pymupdf.open(project.outputs_dir / "report.pdf")
+
+
+def all_text(doc: pymupdf.Document) -> str:
+    return "\n".join(page.get_text() for page in doc)
+
+
+# --- deciding from provenance -----------------------------------------------------------------
+
+
+def test_aris_is_recognised_by_dataset_source_or_licence():
+    assert aris_evidence([]) == [] and not uses_aris([])
+    assert aris_evidence([record(dataset="aris_index")]) == ["dataset aris_index"]
+    for dataset in ("aris_pdfs", "aris_text", "aris_maps", "aris_tables_scanned", "aris_tables_digital"):
+        assert uses_aris([record(dataset=dataset)]), dataset
+    assert uses_aris([record(source="BC Geological Survey, ARIS (DataBC WFS)")])
+    assert uses_aris([record(dataset="catalogue", license="Derived from ARIS reports (Access Only): internal use only")])
+    assert uses_aris([record(dataset="leads", license="Derived product ... aris_index (Access Only): internal use only")])
+
+
+def test_other_sources_do_not_look_like_aris():
+    clean = [
+        record(),
+        record(dataset="mto_tenure", source="BLM MLRS", license="Public domain (U.S. Government work, BLM)"),
+        record(dataset="rgs", source="BC Geological Survey, RGS (DataBC WFS)", license="Open Government Licence - British Columbia"),
+        record(dataset="emit", source="NASA LP DAAC, EMIT L2A reflectance", license="CC0-1.0"),
+        record(dataset="arista_mines", source="Arista Mining Co", license="client supplied"),
+    ]
+    assert uses_aris(clean) is False  # a dataset that merely starts with the letters is not ARIS
+    assert uses_aris([record(source="Carisbrook Ltd")]) is False  # nor is a word that contains them
+    assert uses_aris([record(dataset="aris")]) is True
+
+
+def test_evidence_is_deduplicated_and_capped():
+    many = [record(dataset="aris_index")] * 5 + [record(dataset=f"aris_{i}") for i in range(10)]
+    ev = aris_evidence(many)
+    assert ev[0] == "dataset aris_index" and len(ev) == 6 and len(set(ev)) == 6
+
+
+def test_derived_license_states_only_what_applies():
+    us = [record(license="Public domain (U.S. Government work, USGS)"), record(dataset="mto_tenure", license="Public domain (U.S. Government work, BLM)"), record(operation="write_layer", license="N/A")]
+    text = derived_license(us, includes_aris=False)
+    assert "Access Only" not in text and "USGS" in text and "BLM" in text and "N/A" not in text
+    assert derived_license(us, includes_aris=True) == ARIS_DERIVED_LICENSE and "Access Only" in ARIS_DERIVED_LICENSE
+    assert derived_license([], includes_aris=False) == "Derived product from the project's layers"
+
+
+# --- the PDF ----------------------------------------------------------------------------------
+
+
+def test_a_project_with_no_aris_data_gets_no_internal_marking(make_project):
+    project = make_project(layers=("minfile", "mto_tenure"), raster=False, n_occ=30)
+    log_us_sources(project)
+    doc = build_pdf(project)
+    text = all_text(doc).replace("\n", " ")
+    for forbidden in ("INTERNAL DRAFT", "Access Only", "ARIS", "NOT FOR DISTRIBUTION"):
+        assert forbidden not in text, forbidden
+    assert all(PLAIN_FOOTER in page.get_text() for page in doc)  # a plain draft footer on every page instead
+    assert "Draft. Generated by Gossan" in text and "geologist review" in text
+    assert "INTERNAL DRAFT" not in doc.metadata["subject"] and "Access Only" not in doc.metadata["subject"]
+    assert "Public domain (U.S. Government work" in text  # the licences that do apply are listed
+    assert "USGS and BLM data are U.S. Government works" in text and "Access Only" not in text
+
+
+def test_the_pdf_records_why_it_was_or_was_not_marked(make_project):
+    project = make_project(layers=("minfile",), raster=False, n_occ=30)
+    log_us_sources(project)
+    build_pdf(project)
+    rec = [r for r in project.provenance.read() if r.operation == "build_report_pdf"][-1]
+    assert rec.parameters["aris_marking"] is False and rec.parameters["aris_evidence"] == []
+    assert "Access Only" not in rec.license and "Public domain" in rec.license
+
+    project.provenance.log(dataset="aris_index", source="BC Geological Survey, ARIS (DataBC WFS)", identifier="aris",
+                           license="Access Only (BC Data Catalogue)", **US_FETCH)  # fmt: skip
+    build_pdf(project)
+    rec = [r for r in project.provenance.read() if r.operation == "build_report_pdf"][-1]
+    assert rec.parameters["aris_marking"] is True and "dataset aris_index" in rec.parameters["aris_evidence"]
+    assert "Access Only" in rec.license
+
+
+def test_listing_aris_in_provenance_switches_the_marking_on_everywhere(make_project):
+    project = make_project(layers=("minfile", "mto_tenure"), raster=False, n_occ=30)
+    log_us_sources(project)
+    project.provenance.log(dataset="aris_index", source="BC Geological Survey, ARIS (DataBC WFS)", identifier="aris",
+                           license="Access Only (BC Data Catalogue)", **US_FETCH)  # fmt: skip
+    doc = build_pdf(project)
+    assert all(MARKED_FOOTER in page.get_text() for page in doc)
+    first = doc[0].get_text().replace("\n", " ")
+    assert "INTERNAL DRAFT - NOT FOR DISTRIBUTION" in first and "Access Only" in first and "written permission" in first
+    assert "ARIS data: Access Only" in all_text(doc)
+    assert doc.metadata["subject"].startswith("INTERNAL DRAFT") and PLAIN_FOOTER not in all_text(doc)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"dataset": "aris_pdfs", "source": "BC Geological Survey, ARIS (DataBC WFS)", "license": "Access Only"},
+        {"dataset": "aris_maps", "source": "gossan", "license": "x"},
+        {"dataset": "catalogue", "source": "gossan", "license": "Derived from ARIS reports (Access Only): internal use only"},
+    ],
+)
+def test_any_aris_derived_record_marks_the_report(make_project, extra):
+    project = make_project(layers=("minfile",), raster=False, n_occ=30)
+    log_us_sources(project)
+    project.provenance.log(identifier="x", **US_FETCH, **extra)
+    assert all(MARKED_FOOTER in page.get_text() for page in build_pdf(project))
+
+
+def test_rebuilding_a_report_does_not_flip_an_unmarked_project(make_project):
+    project = make_project(layers=("minfile", "mto_tenure"), raster=False, n_occ=30)
+    log_us_sources(project)
+    for _ in range(3):  # each build adds its own provenance record: it must not count as ARIS evidence
+        doc = build_pdf(project)
+        assert all(PLAIN_FOOTER in page.get_text() for page in doc) and "Access Only" not in all_text(doc)
+    assert not uses_aris(project.provenance.read())
+
+
+def test_a_marked_project_stays_marked_without_the_layers(make_project):
+    """The decision comes from provenance, not from which layers happen to be loaded."""
+    project = make_project(layers=(), raster=False)
+    project.provenance.log(dataset="aris_index", source="BC Geological Survey, ARIS (DataBC WFS)", identifier="aris",
+                           license="Access Only (BC Data Catalogue)", **US_FETCH)  # fmt: skip
+    assert all(MARKED_FOOTER in page.get_text() for page in build_pdf(project))
+
+
+def test_a_bare_project_without_provenance_of_aris_is_unmarked(make_project):
+    project = make_project(layers=(), raster=False)
+    doc = build_pdf(project)
+    text = all_text(doc).replace("\n", " ")
+    assert all(PLAIN_FOOTER in page.get_text() for page in doc) and "INTERNAL DRAFT" not in text
+    assert "Tenure information is not available" in text and "No digitized samples have been approved yet." in text
+    assert "No licence notices apply beyond the sources listed above." in text

@@ -2,7 +2,7 @@
 
 Access method: the DataBC public WFS, layer
 ``pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_PNT_SP`` ("Regional Geochemical
-Survey Data"); see ``gossan.harvest.bc.wfs`` for the request details. One point per
+Survey Data"); see ``gossan.harvest.bc_provincial.wfs`` for the request details. One point per
 sample, with field observations and one column per element/method pair (for example
 ``COPPER_AAS_PPM``, ``GOLD_INAA_PPB``). Several analytical methods can report the same
 element, and many columns are null for any one sample; values below detection limits
@@ -20,7 +20,7 @@ British Columbia."
 
 from __future__ import annotations
 
-from gossan.harvest.bc.wfs import OGL_BC, WfsConnector
+from gossan.harvest.bc_provincial.wfs import OGL_BC, WfsConnector
 
 
 class RgsConnector(WfsConnector):

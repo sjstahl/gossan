@@ -2,7 +2,7 @@
 
 Access method: the BC Geographic Warehouse (DataBC) public WFS, layer
 ``pub:WHSE_MINERAL_TENURE.MINFIL_MINERAL_FILE`` ("MINFILE Mineral Occurrence
-Database"); see ``gossan.harvest.bc.wfs`` for the request details.
+Database"); see ``gossan.harvest.bc_provincial.wfs`` for the request details.
 
 Catalogue record: https://catalogue.data.gov.bc.ca/dataset/92206d94-bc64-4111-a295-cd14eb5a501c
 
@@ -15,7 +15,7 @@ The source is the BC Geological Survey, Ministry of Mining and Critical Minerals
 
 from __future__ import annotations
 
-from gossan.harvest.bc.wfs import OGL_BC, WfsConnector
+from gossan.harvest.bc_provincial.wfs import OGL_BC, WfsConnector
 
 
 class MinfileConnector(WfsConnector):

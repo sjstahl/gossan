@@ -1,0 +1,102 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": 103,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.2,
+       39.16
+      ],
+      [
+       -117.18,
+       39.16
+      ],
+      [
+       -117.18,
+       39.18
+      ],
+      [
+       -117.2,
+       39.18
+      ],
+      [
+       -117.2,
+       39.16
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 103,
+    "ID": "809142547606777803",
+    "CSE_NAME": "PLACER ONE",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Placer Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223555",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "8: SIMPLE\nSECTION CONTAINS 5 OR LESS POLYGONS",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 160.0,
+    "Created": 1612915200000
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 104,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.15,
+       39.2
+      ],
+      [
+       -117.14,
+       39.2
+      ],
+      [
+       -117.14,
+       39.21
+      ],
+      [
+       -117.15,
+       39.21
+      ],
+      [
+       -117.15,
+       39.2
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 104,
+    "ID": "809142547606777804",
+    "CSE_NAME": "MILL ONE",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Mill Site",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223666",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Pending",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 5.0,
+    "Created": 1612915200000
+   }
+  }
+ ],
+ "exceededTransferLimit": true
+}

@@ -71,6 +71,11 @@ class MissingLayerError(Exception):
 def read_layer(project: Project, layer: str) -> gpd.GeoDataFrame:
     gpkg = project.data_gpkg
     if not gpkg.exists() or layer not in pyogrio.list_layers(gpkg)[:, 0]:
+        if layer == ARIS_LAYER and project.config.jurisdiction != "bc":
+            raise MissingLayerError(
+                "lead scoring needs the ARIS assessment-report index, a British Columbia dataset; "
+                "there is no equivalent US source yet, so 'gossan leads run' is not available for this project"
+            )
         raise MissingLayerError(
             f"layer {layer!r} is not in data.gpkg; run 'gossan harvest --source {layer}' first"
         )

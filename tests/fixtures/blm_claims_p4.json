@@ -1,0 +1,101 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": 107,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -116.6,
+       39.12
+      ],
+      [
+       -116.59,
+       39.12
+      ],
+      [
+       -116.59,
+       39.13
+      ],
+      [
+       -116.6,
+       39.13
+      ],
+      [
+       -116.6,
+       39.12
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 107,
+    "ID": "809142547606777807",
+    "CSE_NAME": "FAR AWAY",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223888",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 20.0,
+    "Created": 1612915200000
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 108,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.17,
+       39.14
+      ],
+      [
+       -117.16,
+       39.14
+      ],
+      [
+       -117.16,
+       39.15
+      ],
+      [
+       -117.17,
+       39.15
+      ],
+      [
+       -117.17,
+       39.14
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 108,
+    "ID": "809142547606777808",
+    "CSE_NAME": "AZ STYLE",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "AMC123456",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": null,
+    "Created": 1612915200000
+   }
+  }
+ ]
+}

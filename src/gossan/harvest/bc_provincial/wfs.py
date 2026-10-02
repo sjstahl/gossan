@@ -1,0 +1,68 @@
+"""Shared logic for layers served by the DataBC public WFS.
+
+Endpoint: ``https://openmaps.gov.bc.ca/geo/pub/wfs`` (no authentication). Features are
+requested as GeoJSON in EPSG:4326 with a bounding-box CQL filter around the AOI, paged
+by ``OBJECTID``, and then selected against the AOI polygon locally (whole features that
+intersect the AOI are kept, not cut at its edge).
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from urllib.parse import urlencode
+
+import geopandas as gpd
+
+from gossan.harvest.base import SearchItem
+from gossan.harvest.vector_service import Download, VectorServiceConnector
+
+WFS_URL = "https://openmaps.gov.bc.ca/geo/pub/wfs"
+PAGE_SIZE = 5000
+OGL_BC = "Open Government Licence - British Columbia"
+
+
+class WfsConnector(VectorServiceConnector):
+    """A vector layer from the DataBC WFS. Subclasses set the class attributes below.
+
+    ``name`` is also the ``data.gpkg`` layer and the folder under ``raw/``.
+    """
+
+    jurisdiction = "bc"
+    #: WFS feature type, e.g. ``pub:WHSE_MINERAL_TENURE.MINFIL_MINERAL_FILE``.
+    type_name: str
+    #: Name of the layer's geometry property (differs between layers).
+    geometry_column: str
+
+    def search(self, aoi: gpd.GeoDataFrame) -> list[SearchItem]:
+        minx, miny, maxx, maxy = aoi.to_crs("EPSG:4326").total_bounds
+        bbox = f"{minx:.6f},{miny:.6f},{maxx:.6f},{maxy:.6f}"
+        params = {
+            "service": "WFS",
+            "version": "2.0.0",
+            "request": "GetFeature",
+            "typeNames": self.type_name,
+            "outputFormat": "application/json",
+            "srsName": "EPSG:4326",
+            "sortBy": "OBJECTID",
+            "CQL_FILTER": f"BBOX({self.geometry_column},{bbox},'EPSG:4326')",
+        }
+        url = f"{WFS_URL}?{urlencode(params)}"
+        return [SearchItem(identifier=self.type_name, url=url, parameters=params)]
+
+    def download(self, item: SearchItem) -> Download:
+        features: list[dict] = []
+        start = 0
+        while True:
+            page = json.loads(self._get(f"{item.url}&count={PAGE_SIZE}&startIndex={start}"))
+            features.extend(page["features"])
+            if len(page["features"]) < PAGE_SIZE:
+                break
+            start += PAGE_SIZE
+        content = json.dumps({"type": "FeatureCollection", "features": features}).encode("utf-8")
+        return Download(content, "geojson", len(features), {"cql_filter": item.parameters["CQL_FILTER"]})
+
+    def read_raw(self, path: Path) -> gpd.GeoDataFrame | None:
+        if not json.loads(path.read_text(encoding="utf-8"))["features"]:
+            return None  # an empty collection has no schema for the reader to infer
+        return gpd.read_file(path, engine="pyogrio")

@@ -106,6 +106,8 @@ class ProjectConfig(BaseModel):
     )
     aoi_path: str = Field(default=AOI_FILE, description="AOI path relative to the project folder.")
     modules: list[Module] = Field(default_factory=lambda: [Module.HARVEST, Module.REPORT])
+    #: Which jurisdiction's data sources a plain ``gossan harvest`` uses ("bc" or "us").
+    jurisdiction: Literal["bc", "us"] = "bc"
     georef: GeorefConfig = Field(default_factory=GeorefConfig)
     satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
     target: TargetConfig = Field(default_factory=TargetConfig)

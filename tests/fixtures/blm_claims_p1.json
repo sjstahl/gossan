@@ -1,0 +1,102 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": 101,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.28,
+       39.12
+      ],
+      [
+       -117.27,
+       39.12
+      ],
+      [
+       -117.27,
+       39.13
+      ],
+      [
+       -117.28,
+       39.13
+      ],
+      [
+       -117.28,
+       39.12
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 101,
+    "ID": "809142547606777801",
+    "CSE_NAME": "TG001",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223401",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A SENW",
+    "RCRD_ACRS": 20.66,
+    "Created": 1612915200000
+   }
+  },
+  {
+   "type": "Feature",
+   "id": 102,
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -117.27,
+       39.12
+      ],
+      [
+       -117.26,
+       39.12
+      ],
+      [
+       -117.26,
+       39.13
+      ],
+      [
+       -117.27,
+       39.13
+      ],
+      [
+       -117.27,
+       39.12
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 102,
+    "ID": "809142547606777802",
+    "CSE_NAME": "TG001",
+    "STAGE_ID": "1",
+    "BLM_PROD": "Lode Claim",
+    "CSE_TYPE_NR": "384101",
+    "CSE_NR": "NV105223401",
+    "LEG_CSE_NR": "",
+    "SF_ID": "a02t0000006M3pQAAS",
+    "CSE_DISP": "Active",
+    "SRC": "LLD",
+    "QLTY": "0: \n36 sections retrieved",
+    "CSE_META": "NV 21 0170N 0440E 028 A NENW",
+    "RCRD_ACRS": 20.66,
+    "Created": 1612915200000
+   }
+  }
+ ],
+ "exceededTransferLimit": true
+}

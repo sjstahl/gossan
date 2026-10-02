@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from gossan.core.config import TargetConfig
+from gossan.core.licensing import derived_license
 from gossan.core.project import Project
 from gossan.target.cv import run_cv
 from gossan.target.features import (
@@ -25,11 +26,6 @@ from gossan.target.outputs import (
     write_cog,
     write_importances,
     write_json,
-)
-
-DERIVED_LICENSE = (
-    "Derived product from harvested layers (MINFILE, MTO tenure, RGS under OGL-BC; ARIS index "
-    "Access Only; NRCan under OGL-Canada): internal use only"
 )
 
 
@@ -159,7 +155,7 @@ def run_target(
             source="gossan",
             identifier=path.relative_to(project.root).as_posix(),
             url=None,
-            license=DERIVED_LICENSE,
+            license=derived_license(project.provenance.read(), includes_aris="aris_density" in stack.names),
             operation="target_run",
             parameters={"output": name, **params},
         )

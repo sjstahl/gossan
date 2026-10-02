@@ -32,7 +32,7 @@ import geopandas as gpd
 import pyogrio
 
 from gossan.core.project import Project
-from gossan.harvest.bc.aris import ArisIndexConnector
+from gossan.harvest.bc_provincial.aris import ArisIndexConnector
 
 ARIS_BASE = "https://apps.nrs.gov.bc.ca/pub/aris"
 DETAIL_URL = re.compile(r"^(?P<base>https?://[^?#]*?)/detail/(?P<number>\d+)/?$")

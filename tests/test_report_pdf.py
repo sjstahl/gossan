@@ -195,11 +195,13 @@ def test_build_is_logged_with_a_hash_of_the_file(make_project):
 # --- sparse projects and failures ----------------------------------------------------------
 
 
-def test_a_bare_project_still_produces_a_marked_pdf_that_says_what_is_missing(make_project):
+def test_a_bare_project_still_produces_a_pdf_that_says_what_is_missing(make_project):
+    """No ARIS data in provenance, so this is a plain draft: the internal marking does not apply
+    (see test_report_conditional.py); everything else about a sparse project is unchanged."""
     project = make_project(layers=(), raster=False)
     doc = make_pdf(project)
     text = text_of(doc).replace("\n", " ")
-    assert all(FOOTER in page.get_text() for page in doc) and "INTERNAL DRAFT - NOT FOR DISTRIBUTION" in text
+    assert all(report_pdf.PLAIN_FOOTER in page.get_text() for page in doc) and "INTERNAL DRAFT" not in text
     assert "Tenure information is not available" in text and "gossan harvest --source mto_tenure" in text
     assert "Lead scoring is not available" in text and "gossan leads run" in text
     assert "Prospectivity targeting is not available" in text and "gossan target" in text

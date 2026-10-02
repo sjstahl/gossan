@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
 from gossan.harvest.bc.wfs import WfsConnector
 
@@ -247,4 +246,54 @@ def stac(monkeypatch) -> FakeStac:
     monkeypatch.delenv("EARTHDATA_TOKEN", raising=False)
     monkeypatch.delenv("EOC_USERNAME", raising=False)
     monkeypatch.delenv("EOC_PASSWORD", raising=False)
+    return fake
+
+
+# --- US federal connectors: fixtures only, no network ----------------------------------------
+
+
+class FakeUs:
+    """Serves the committed MRDS GML and BLM ArcGIS pages; records every request."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []  # (service, url)
+        self.mrds_file = "mrds_wfs.gml"
+        self.blm_pages = ["blm_claims_p1.json", "blm_claims_p2.json", "blm_claims_p3.json", "blm_claims_p4.json", "blm_claims_empty.json"]
+        self.blm_file_override: str | None = None  # serve this file for every ArcGIS request
+        self.mrds_bytes: bytes | None = None  # serve these bytes instead of the file
+        self.blm_features: list | None = None  # serve all of these in one page
+
+
+@pytest.fixture
+def us(monkeypatch) -> FakeUs:
+    """Replace the MRDS and BLM network calls; no live requests in tests."""
+    import json
+    import re
+
+    from gossan.harvest.us_federal.blm_mlrs import BlmClaimsConnector
+    from gossan.harvest.us_federal.mrds import MrdsConnector
+
+    fake = FakeUs()
+
+    def mrds_get(self, url):
+        fake.calls.append(("mrds", url))
+        return fake.mrds_bytes if fake.mrds_bytes is not None else (FIXTURES / fake.mrds_file).read_bytes()
+
+    def blm_get(self, url):
+        fake.calls.append(("blm", url))
+        if fake.blm_features is not None:
+            return json.dumps({"type": "FeatureCollection", "features": fake.blm_features}).encode()
+        if fake.blm_file_override:
+            return (FIXTURES / fake.blm_file_override).read_bytes()
+        offset = int(re.search(r"resultOffset=(\d+)", url).group(1))
+        size = int(re.search(r"resultRecordCount=(\d+)", url).group(1))
+        everything = [f for name in fake.blm_pages for f in json.loads((FIXTURES / name).read_text())["features"]]
+        page = everything[offset : offset + size]  # what a real service does: the next slice of the same result
+        body = {"type": "FeatureCollection", "features": page}
+        if offset + size < len(everything):
+            body["exceededTransferLimit"] = True
+        return json.dumps(body).encode()
+
+    monkeypatch.setattr(MrdsConnector, "_get", mrds_get)
+    monkeypatch.setattr(BlmClaimsConnector, "_get", blm_get)
     return fake
