@@ -1,0 +1,187 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "HSP.1",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.317,
+     50.715
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-A-1",
+    "NOW_NUMBER": "A-1",
+    "NOW_APPLICATION_STATUS_DESC": "Approved",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2026-03-10Z",
+    "TENURE_NUMBER": "1001, 9999",
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": "Open",
+    "AMENDMENT_AUTH_END_DATE": "2027-06-30Z",
+    "PERMITTEE_NAME": "Alpha Gold Corp.",
+    "MINE_NAME": "Mine A-1",
+    "OBJECTID": 1
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.2",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.307,
+     50.715
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-B-1",
+    "NOW_NUMBER": "B-1",
+    "NOW_APPLICATION_STATUS_DESC": "Referred",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2026-09-14Z",
+    "TENURE_NUMBER": null,
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": null,
+    "AMENDMENT_AUTH_END_DATE": null,
+    "PERMITTEE_NAME": "Beta Minerals Ltd.",
+    "MINE_NAME": "Mine B-1",
+    "OBJECTID": 2
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.3",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.302,
+     50.725
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-C-1",
+    "NOW_NUMBER": "C-1",
+    "NOW_APPLICATION_STATUS_DESC": "Approved",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2018-05-01Z",
+    "TENURE_NUMBER": "1004",
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": "Closed",
+    "AMENDMENT_AUTH_END_DATE": "2020-01-01Z",
+    "PERMITTEE_NAME": "Gamma Exploration",
+    "MINE_NAME": "Mine C-1",
+    "OBJECTID": 3
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.4",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.312,
+     50.715
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-D-1",
+    "NOW_NUMBER": "D-1",
+    "NOW_APPLICATION_STATUS_DESC": "Rejected",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2026-02-01Z",
+    "TENURE_NUMBER": null,
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": null,
+    "AMENDMENT_AUTH_END_DATE": null,
+    "PERMITTEE_NAME": "Delta Resources",
+    "MINE_NAME": "Mine D-1",
+    "OBJECTID": 4
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.5",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.297,
+     50.715
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-E-1",
+    "NOW_NUMBER": "E-1",
+    "NOW_APPLICATION_STATUS_DESC": "Approved",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2022-04-01Z",
+    "TENURE_NUMBER": null,
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": "Open",
+    "AMENDMENT_AUTH_END_DATE": "2025-01-01Z",
+    "PERMITTEE_NAME": null,
+    "MINE_NAME": "Mine E-1",
+    "OBJECTID": 5
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.6",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.2845,
+     50.7235
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-F-1",
+    "NOW_NUMBER": "F-1",
+    "NOW_APPLICATION_STATUS_DESC": "Approved",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2025-11-20Z",
+    "TENURE_NUMBER": null,
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": "Open",
+    "AMENDMENT_AUTH_END_DATE": "2028-01-31Z",
+    "PERMITTEE_NAME": "Foxtrot Mining",
+    "MINE_NAME": "Mine F-1",
+    "OBJECTID": 6
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "HSP.7",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -120.0,
+     50.9
+    ]
+   },
+   "properties": {
+    "NOW_APPLICATION_GUID": "guid-G-1",
+    "NOW_NUMBER": "G-1",
+    "NOW_APPLICATION_STATUS_DESC": "Approved",
+    "TYPE_OF_APPLICATION": "New Permit",
+    "NOW_APPLICATION_TYPE_DESC": "Mineral",
+    "NOW_APPLICATION_SUBMITTED_DATE": "2025-11-20Z",
+    "TENURE_NUMBER": "424242",
+    "EXP_SURFACE_DRILLING_HA": 0.8,
+    "PERMIT_STATUS_CODE_DESC": "Open",
+    "AMENDMENT_AUTH_END_DATE": "2028-01-31Z",
+    "PERMITTEE_NAME": "Far Away Inc.",
+    "MINE_NAME": "Mine G-1",
+    "OBJECTID": 7
+   }
+  }
+ ]
+}

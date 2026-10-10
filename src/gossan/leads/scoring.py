@@ -3,7 +3,7 @@
 The score is additive and out of 100 (all weights are configurable in ``project.yaml``
 under ``parameters: leads:``; see ``LeadsConfig``):
 
-``score = recency_points + count_points + legacy_points``
+``score = min(100, recency_points + count_points + legacy_points + drilling_points)``
 
 * ``recency_points``: points for how recently the tenure was issued, by age tier. By
   default 50 within 1 year, 30 within 3 years, 15 within 5 years, else 0. A new
@@ -13,6 +13,10 @@ under ``parameters: leads:``; see ``LeadsConfig``):
 * ``legacy_points``: historical depth, linear in the number of those reports dated
   before 1990 (paper-era, the likeliest to need digitizing), reaching its maximum (25)
   at 5 such reports.
+* ``drilling_points``: a small bonus when a Notice of Work with surface drilling is on the
+  tenure (10 if active, 5 if pending, 0 if lapsed by default; see ``gossan.leads.drilling``).
+  The flag itself (``drilling_flag``) is reported separately from the score. The total is
+  capped at 100.
 
 Caveats, by design of the source data:
 
@@ -36,9 +40,11 @@ import pyogrio
 from pydantic import BaseModel, ConfigDict, Field
 
 from gossan.core.project import Project
+from gossan.leads.drilling import COLUMNS, NONE_FOUND, NOT_ASSESSED, drilling_summary
 
 TENURE_LAYER = "mto_tenure"
 ARIS_LAYER = "aris_index"
+DRILLING_LAYER = "drilling_notices"
 
 
 class LeadsConfig(BaseModel):
@@ -58,6 +64,12 @@ class LeadsConfig(BaseModel):
     tenure_types: list[str] = ["Mineral"]
     #: Skip tenures whose good-to date is before the as-of date.
     active_only: bool = True
+    #: Bonus for a drilling Notice of Work on the tenure, by its status (0 turns the bonus off).
+    drilling_active_points: float = Field(default=10, ge=0)
+    drilling_pending_points: float = Field(default=5, ge=0)
+    drilling_lapsed_points: float = Field(default=0, ge=0)
+    #: A notice point within this distance (m) of a tenure counts as on it, as well as by tenure number.
+    drilling_match_buffer_m: float = Field(default=500, ge=0)
 
     @classmethod
     def from_project(cls, project: Project) -> LeadsConfig:
@@ -82,6 +94,14 @@ def read_layer(project: Project, layer: str) -> gpd.GeoDataFrame:
     return gpd.read_file(gpkg, layer=layer, engine="pyogrio")
 
 
+def optional_layer(project: Project, layer: str) -> gpd.GeoDataFrame | None:
+    """The layer, or None when ``data.gpkg`` does not have it."""
+    gpkg = project.data_gpkg
+    if not gpkg.exists() or layer not in pyogrio.list_layers(gpkg)[:, 0]:
+        return None
+    return gpd.read_file(gpkg, layer=layer, engine="pyogrio")
+
+
 def recency_points(age_years: float, tiers: list[tuple[float, float]]) -> float:
     """Points for a tenure of the given age; NaN age (no issue date) scores 0."""
     if pd.isna(age_years):
@@ -97,8 +117,12 @@ def score_leads(
     aris: gpd.GeoDataFrame,
     config: LeadsConfig,
     as_of: date,
+    notices: gpd.GeoDataFrame | None = None,
 ) -> gpd.GeoDataFrame:
     """Score tenure polygons against ARIS points (both in the same projected CRS).
+
+    ``notices`` are the ``drilling_notices`` points; None means the layer was not harvested, and
+    the drilling columns say "not assessed".
 
     Returns one row per tenure, ranked best first, with the score components.
     """
@@ -170,7 +194,29 @@ def score_leads(
         config.legacy_points * out["aris_legacy_count"].clip(upper=config.legacy_cap)
         / config.legacy_cap
     )  # fmt: skip
-    out["score"] = (out["recency_points"] + out["count_points"] + out["legacy_points"]).round(2)
+    if notices is None:
+        drilling = pd.DataFrame(columns=COLUMNS)
+    else:
+        drilling = drilling_summary(tenure, notices, config.drilling_match_buffer_m, as_of)
+    for col in COLUMNS:
+        out[col] = keyed.map(drilling[col]) if len(drilling) else None
+    unflagged = NOT_ASSESSED if notices is None else NONE_FOUND
+    out["drilling_flag"] = out["drilling_flag"].fillna(unflagged)
+    for col in ("drilling_active_count", "drilling_pending_count", "drilling_lapsed_count"):
+        out[col] = out[col].fillna(0).astype(int)
+    for col in ("drilling_latest_filed", "drilling_operator", "drilling_notice_numbers"):
+        out[col] = out[col].fillna("")
+    bonus = {
+        "active": config.drilling_active_points,
+        "pending": config.drilling_pending_points,
+        "lapsed": config.drilling_lapsed_points,
+    }
+    out["drilling_points"] = out["drilling_flag"].map(bonus).fillna(0.0)
+    out["score"] = (
+        (out["recency_points"] + out["count_points"] + out["legacy_points"] + out["drilling_points"])
+        .clip(upper=100)
+        .round(2)
+    )
 
     out = out.sort_values(
         ["score", "aris_count", "lead_id"], ascending=[False, False, True]

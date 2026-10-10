@@ -766,6 +766,13 @@ def leads_run(
     project.yaml under parameters: leads: (see gossan.leads.scoring). Leads use ARIS
     data, which is Access Only: keep the outputs internal.
 
+    If the drilling_notices layer is there ('gossan harvest --source drilling_notices', BC Notice
+    of Work applications with surface drilling), each lead also gets a drilling flag (active,
+    pending, lapsed, none) and a small score bonus (parameters: leads: drilling_active_points
+    10, drilling_pending_points 5, drilling_lapsed_points 0, drilling_match_buffer_m 500). The
+    flag is a permit signal, not proof that a rig is on site. Without the layer the flag
+    reads 'not assessed' and scores are unchanged.
+
     US projects (BLM claims, MRDS occurrences) are scored differently: BLM MLRS has no issue
     or good-to dates, so recency and expiry are skipped. Claims score on overlap with the
     'gossan target' polygons (target/targets.gpkg) and proximity to MRDS occurrences. Run
@@ -788,7 +795,9 @@ def leads_run(
     for r in leads.head(5).itertuples():
         name = r.claim_name if isinstance(r.claim_name, str) else "(unnamed)"
         detail = (
-            f"{r.target_overlap_pct:g}% in targets" if hasattr(r, "overlap_points") else f"{r.aris_count} ARIS"
+            f"{r.target_overlap_pct:g}% in targets"
+            if hasattr(r, "overlap_points")
+            else f"{r.aris_count} ARIS" + (f", drilling {r.drilling_flag}" if r.drilling_flag in ("active", "pending", "lapsed") else "")
         )
         typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({detail})")
 

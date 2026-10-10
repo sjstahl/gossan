@@ -17,7 +17,7 @@ One click runs three Gossan commands in sequence, then loads the results:
 | Step | Command run for you | Result |
 |---|---|---|
 | 1 | `gossan new <name> --aoi <your AOI>` | Project folder `<base>/<name>/`, AOI reprojected to the UTM zone of its centroid. |
-| 2 | `gossan harvest <name>` | MINFILE occurrences, MTO mineral tenure, ARIS report index and RGS geochemistry downloaded into `data.gpkg`. |
+| 2 | `gossan harvest <name>` | MINFILE occurrences, MTO mineral tenure, ARIS report index, RGS geochemistry and drilling Notices of Work downloaded into `data.gpkg`. |
 | 3 | `gossan target <name> --resolution <m>` | PU-bagging random forest model, spatial cross-validation, outputs in `<name>/target/`. |
 | 4 | *(QGIS)* | Prospectivity raster and target polygons added to your map, styled. |
 

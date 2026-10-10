@@ -7,6 +7,7 @@ true and whose jurisdiction matches the project's; ``--source`` names connectors
 
 from gossan.harvest.base import Connector
 from gossan.harvest.bc_provincial.aris import ArisIndexConnector
+from gossan.harvest.bc_provincial.drilling_notices import DrillingNoticesConnector
 from gossan.harvest.bc_provincial.minfile import MinfileConnector
 from gossan.harvest.bc_provincial.mto_tenure import MtoTenureConnector
 from gossan.harvest.bc_provincial.rgs import RgsConnector
@@ -25,6 +26,7 @@ CONNECTORS: dict[str, type[Connector]] = {
         MinfileConnector,
         MtoTenureConnector,
         ArisIndexConnector,
+        DrillingNoticesConnector,
         RgsConnector,
         MrdsConnector,
         BlmClaimsConnector,

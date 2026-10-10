@@ -391,6 +391,20 @@ def _sec_leads_us(f: Facts, lead_id: str | None, st: dict) -> list:
     return out
 
 
+def _drilling_label(flag: object) -> str:
+    return {"none": "-", "not assessed": "n/a"}.get(str(flag), str(flag))
+
+
+def _featured_drilling(row) -> str:
+    flag = str(row.get("drilling_flag", "not assessed"))
+    if flag in ("none", "not assessed"):
+        return "None found" if flag == "none" else "Not assessed"
+    detail = [flag, f"notice(s) {row['drilling_notice_numbers']}"]
+    if row["drilling_operator"]:
+        detail.append(str(row["drilling_operator"]))
+    return "; ".join(detail)
+
+
 def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: dict) -> list:
     out: list = [Paragraph("Lead scoring", st["h1"])]
     if f.leads is None:
@@ -405,10 +419,19 @@ def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: d
             st["body"],
         )
     )
-    rows: list[list[object]] = [["Rank", "Tenure", "Claim", "Owner", "Issued", "Score", "ARIS reports"]]
+    rows: list[list[object]] = [["Rank", "Tenure", "Claim", "Owner", "Issued", "Score", "ARIS", "Drilling"]]
     for r in f.leads.head(10).itertuples():
-        rows.append([r.rank, r.lead_id, r.claim_name, r.owner, r.issue_date, f"{r.score:g}", r.aris_count])
-    out.append(_table(rows, [0.4 * inch, 0.7 * inch, 1.3 * inch, 2.0 * inch, 0.8 * inch, 0.5 * inch, 0.8 * inch], st))
+        rows.append([r.rank, r.lead_id, r.claim_name, r.owner, r.issue_date, f"{r.score:g}", r.aris_count, _drilling_label(getattr(r, "drilling_flag", "not assessed"))])
+    out.append(_table(rows, [0.4 * inch, 0.7 * inch, 1.2 * inch, 1.6 * inch, 0.8 * inch, 0.5 * inch, 0.5 * inch, 0.7 * inch], st))
+    if "drilling_flag" in f.leads.columns and (f.leads["drilling_flag"] != "not assessed").any():
+        out.append(
+            Paragraph(
+                "Drilling: from BC Notice of Work applications that include surface drilling (active = approved and in force, "
+                "pending = application in progress, lapsed = closed or past its authorisation end date). It shows drilling is "
+                "authorised or applied for, not that a rig is on site, and adds only a small bonus to the score.",
+                st["small"],
+            )
+        )
     out.append(Paragraph(f"Top {min(10, len(f.leads))} of {len(f.leads)} scored tenures. Full list: outputs/leads_ranked.csv.", st["small"]))
     if lead_id is not None:
         row = f.leads[f.leads["lead_id"] == str(lead_id)].iloc[0]
@@ -416,7 +439,8 @@ def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: d
         facts = [
             ["Claim", row["claim_name"]], ["Owner", row["owner"]], ["Tenure type", row["tenure_type"]],
             ["Issued / good to", f"{row['issue_date']} / {row['good_to_date']}"], ["Area", f"{row['area_ha']} ha"],
-            ["Score", f"{row['score']:g} (rank {row['rank']}; recency {row['recency_points']:g}, report count {row['count_points']:g}, legacy reports {row['legacy_points']:g})"],
+            ["Score", f"{row['score']:g} (rank {row['rank']}; recency {row['recency_points']:g}, report count {row['count_points']:g}, legacy reports {row['legacy_points']:g}, drilling {row.get('drilling_points', 0):g})"],
+            ["Drilling notice", _featured_drilling(row)],
         ]  # fmt: skip
         out.append(_table(facts, [1.4 * inch, CONTENT_W - 1.4 * inch], st, header=False))
         aris = f.aris

@@ -37,6 +37,20 @@ def reports_for_lead(lead: gpd.GeoSeries, aris: gpd.GeoDataFrame) -> gpd.GeoData
     return inside.sort_values(["REPORT_YEAR", "ARIS_NUMBER"]).reset_index(drop=True)
 
 
+def _drilling_text(lead: gpd.GeoSeries) -> str:
+    """One line on the drilling flag; a permit signal, not proof that a rig is on site."""
+    flag = lead.get("drilling_flag", "not assessed")
+    if flag in ("not assessed", "none"):
+        return "none found" if flag == "none" else "not assessed (harvest drilling_notices)"
+    notes = [f"{flag}", f"notices {lead['drilling_notice_numbers']}"]
+    if lead["drilling_operator"]:
+        notes.append(str(lead["drilling_operator"]))
+    if lead["drilling_latest_filed"]:
+        notes.append(f"latest filed {lead['drilling_latest_filed']}")
+    notes.append(f"+{lead['drilling_points']:g} points; permit signal only")
+    return "; ".join(notes)
+
+
 def build_pack(project: Project, lead_id: str) -> Path:
     """Write ``outputs/lead_<id>_pack.docx`` for a lead from the ``leads`` layer."""
     try:
@@ -70,6 +84,7 @@ def build_pack(project: Project, lead_id: str) -> Path:
         ("Recency points", lead["recency_points"]),
         ("Report-count points", lead["count_points"]),
         ("Legacy-report points", lead["legacy_points"]),
+        ("Drilling notice (BC Notice of Work)", _drilling_text(lead)),
     ]
     table = doc.add_table(rows=0, cols=2, style="Light List")
     for label, value in fields:

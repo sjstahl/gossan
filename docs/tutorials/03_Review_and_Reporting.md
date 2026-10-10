@@ -254,6 +254,18 @@ A section without its data says which command produces it. If items are still pe
 
 ---
 
+## Drilling indicator on BC leads
+
+A plain `gossan harvest` on a BC project also downloads `drilling_notices`: Mines Act **Notice of Work** applications and permits that include surface exploration drilling. `gossan leads run` then adds, to every lead:
+
+- **`drilling_flag`**: `active` (approved, permit open, not past its authorisation end date), `pending` (application in progress), `lapsed` (closed or past its end date) or `none`. Rejected and withdrawn applications are ignored. A notice counts for a tenure if it lists the tenure number or its point is within 500 m of the claim.
+- **`drilling_points`**: a small bonus added to the score (default 10 active, 5 pending, 0 lapsed; the score is capped at 100). Set `drilling_active_points`, `drilling_pending_points`, `drilling_lapsed_points` or `drilling_match_buffer_m` under `parameters: leads:` in `project.yaml`; set the points to 0 to keep the flag but not the bonus.
+- The notice numbers, the operator and the latest filing date, in the CSV, the lead pack and the report.
+
+**Read it as a permit signal, not proof of a rig on site.** The layer gives hectares of drilling disturbance and the permit status, not hole counts, depths or schedules. A permit can be approved and never used, administrative amendments are not in the layer, and some notices have no coordinates. Without the layer the flag reads `not assessed` and scores are unchanged.
+
+---
+
 ## Leads on US projects
 
 `gossan leads run <name>` works on US projects once `gossan target` has run. BLM MLRS has no `ISSUE_DATE` or `GOOD_TO_DATE`, so the recency and expiry scoring used for BC is skipped. Each claim gets up to 100 points:

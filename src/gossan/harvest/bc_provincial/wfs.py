@@ -33,6 +33,8 @@ class WfsConnector(VectorServiceConnector):
     type_name: str
     #: Name of the layer's geometry property (differs between layers).
     geometry_column: str
+    #: Optional extra CQL condition, ANDed with the bounding-box filter (for example a field > 0).
+    extra_cql: str | None = None
 
     def search(self, aoi: gpd.GeoDataFrame) -> list[SearchItem]:
         minx, miny, maxx, maxy = aoi.to_crs("EPSG:4326").total_bounds
@@ -45,7 +47,8 @@ class WfsConnector(VectorServiceConnector):
             "outputFormat": "application/json",
             "srsName": "EPSG:4326",
             "sortBy": "OBJECTID",
-            "CQL_FILTER": f"BBOX({self.geometry_column},{bbox},'EPSG:4326')",
+            "CQL_FILTER": f"BBOX({self.geometry_column},{bbox},'EPSG:4326')"
+            + (f" AND {self.extra_cql}" if self.extra_cql else ""),
         }
         url = f"{WFS_URL}?{urlencode(params)}"
         return [SearchItem(identifier=self.type_name, url=url, parameters=params)]

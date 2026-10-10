@@ -11,6 +11,7 @@ WFS_FIXTURES = {
     "pub:WHSE_MINERAL_TENURE.MTA_ACQUIRED_TENURE_SVW": "mto_tenure_wfs.geojson",
     "pub:WHSE_MINERAL_TENURE.ARIS_MINERAL_REPORTS": "aris_index_wfs.geojson",
     "pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_PNT_SP": "rgs_wfs.geojson",
+    "pub:WHSE_MINERAL_TENURE.HSP_NOTICE_OF_WORK_PA_POINT_SV": "drilling_notices_wfs.geojson",
 }
 
 

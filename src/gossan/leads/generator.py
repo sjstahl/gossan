@@ -12,10 +12,12 @@ from gossan.core.licensing import derived_license
 from gossan.core.project import Project
 from gossan.leads.scoring import (
     ARIS_LAYER,
+    DRILLING_LAYER,
     TENURE_LAYER,
     LeadsConfig,
     MissingLayerError,
     config_summary,
+    optional_layer,
     read_layer,
     score_leads,
 )
@@ -34,7 +36,9 @@ CSV_COLUMNS = [
     "rank", "lead_id", "score", "claim_name", "owner", "tenure_type", "issue_date",
     "good_to_date", "area_ha", "recency_points", "count_points", "legacy_points",
     "aris_count", "aris_legacy_count", "aris_earliest_year", "aris_latest_year",
-    "aris_per_km2", "aris_numbers",
+    "aris_per_km2", "aris_numbers", "drilling_points", "drilling_flag", "drilling_active_count",
+    "drilling_pending_count", "drilling_lapsed_count", "drilling_latest_filed", "drilling_operator",
+    "drilling_notice_numbers",
 ]  # fmt: skip
 # Leads carry ARIS-derived values, and ARIS is Access Only (see harvest/bc_provincial/aris.py).
 DERIVED_LICENSE = (
@@ -60,7 +64,10 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
         return _run_us_leads(project, as_of)
     tenure = read_layer(project, TENURE_LAYER).to_crs(crs)
     aris = read_layer(project, ARIS_LAYER).to_crs(crs)
-    leads = score_leads(tenure, aris, config, as_of)
+    notices = optional_layer(project, DRILLING_LAYER)
+    if notices is not None:
+        notices = notices.to_crs(crs)
+    leads = score_leads(tenure, aris, config, as_of, notices)
 
     project.outputs_dir.mkdir(exist_ok=True)
     csv_path = project.outputs_dir / LEADS_CSV
@@ -76,6 +83,7 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
         "config": config_summary(config),
         "n_tenure_in": len(tenure),
         "n_aris_in": len(aris),
+        "n_drilling_notices_in": None if notices is None else len(notices),
         "n_leads": len(leads),
     }
     project.provenance.log(
