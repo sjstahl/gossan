@@ -166,3 +166,44 @@ def test_pack_and_report_show_the_flag(with_notices):
     doc = pymupdf.open(with_notices.outputs_dir / "report.pdf")
     text = "\n".join(p.get_text() for p in doc).replace("\n", " ")
     assert "Drilling" in text and "not that a rig is on site" in text and "Alpha Gold Corp." in text
+
+
+# --- major mines ------------------------------------------------------------------------------
+
+
+def with_major_a1(project: Project) -> gpd.GeoDataFrame:
+    notices = read_layer(project, "drilling_notices")
+    notices["MINE_TYPE"] = ["Major Mine" if n == "A-1" else "Regional Mine" for n in notices["NOW_NUMBER"]]
+    return notices
+
+
+def test_major_mine_notices_are_flagged_and_labelled_but_score_nothing_by_default(with_notices):
+    tenure, aris = read_layer(with_notices, "mto_tenure"), read_layer(with_notices, "aris_index")
+    base = scored(with_notices, notices=False)
+    leads = score_leads(tenure, aris, LeadsConfig(), AS_OF, with_major_a1(with_notices)).set_index("lead_id")
+    row = leads.loc["1001"]  # its only notice, A-1, is on a major mine
+    assert (row.drilling_flag, row.drilling_mine_scale, row.drilling_scored_flag) == ("active", "Major Mine", "none")
+    assert row.drilling_points == 0 and row.score == base.loc["1001", "score"]
+    mixed = leads.loc["1002"]  # A-1 (major, active) and B-1 (regional, pending) are both within the buffer
+    assert (mixed.drilling_flag, mixed.drilling_mine_scale, mixed.drilling_scored_flag) == ("active", "Major and regional", "pending")
+    assert mixed.drilling_points == 5
+    assert leads.loc["1003", "drilling_mine_scale"] == "Regional Mine" and leads.loc["1003", "drilling_points"] == 5
+
+
+def test_the_major_mine_bonus_can_be_turned_back_on(with_notices):
+    tenure, aris = read_layer(with_notices, "mto_tenure"), read_layer(with_notices, "aris_index")
+    config = LeadsConfig(drilling_include_major_mines=True)
+    leads = score_leads(tenure, aris, config, AS_OF, with_major_a1(with_notices)).set_index("lead_id")
+    assert leads.loc["1001", "drilling_points"] == 10 and leads.loc["1002", "drilling_points"] == 10
+
+
+def test_pack_and_report_say_when_a_notice_is_on_a_major_mine(with_notices):
+    notices = with_major_a1(with_notices)
+    notices.to_file(with_notices.data_gpkg, layer="drilling_notices", driver="GPKG", engine="pyogrio")
+    assert runner.invoke(app, ["leads", "run", "demo", "--as-of", "2026-10-01"]).exit_code == 0
+    assert runner.invoke(app, ["leads", "pack", "demo", "1001"]).exit_code == 0
+    cells = [c.text for t in Document(str(with_notices.outputs_dir / "lead_1001_pack.docx")).tables for r in t.rows for c in r.cells]
+    assert any("major mine: no score bonus" in c for c in cells)
+    assert runner.invoke(app, ["report", "demo", "--lead", "1001"]).exit_code == 0
+    text = " ".join("\n".join(p.get_text() for p in pymupdf.open(with_notices.outputs_dir / "report.pdf")).split())
+    assert "major mine" in text

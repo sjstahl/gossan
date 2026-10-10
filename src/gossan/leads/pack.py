@@ -47,6 +47,8 @@ def _drilling_text(lead: gpd.GeoSeries) -> str:
         notes.append(str(lead["drilling_operator"]))
     if lead["drilling_latest_filed"]:
         notes.append(f"latest filed {lead['drilling_latest_filed']}")
+    if lead.get("drilling_mine_scale") == "Major Mine":
+        notes.append("major mine: no score bonus")
     notes.append(f"+{lead['drilling_points']:g} points; permit signal only")
     return "; ".join(notes)
 

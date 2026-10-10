@@ -14,7 +14,8 @@ under ``parameters: leads:``; see ``LeadsConfig``):
   before 1990 (paper-era, the likeliest to need digitizing), reaching its maximum (25)
   at 5 such reports.
 * ``drilling_points``: a small bonus when a Notice of Work with surface drilling is on the
-  tenure (10 if active, 5 if pending, 0 if lapsed by default; see ``gossan.leads.drilling``).
+  tenure (10 if active, 5 if pending, 0 if lapsed by default; see ``gossan.leads.drilling``). Notices on
+  major (producing) mines are flagged and labelled but earn nothing unless ``drilling_include_major_mines``.
   The flag itself (``drilling_flag``) is reported separately from the score. The total is
   capped at 100.
 
@@ -68,6 +69,8 @@ class LeadsConfig(BaseModel):
     drilling_active_points: float = Field(default=10, ge=0)
     drilling_pending_points: float = Field(default=5, ge=0)
     drilling_lapsed_points: float = Field(default=0, ge=0)
+    #: Whether notices on major (producing) mines also earn the bonus; off by default.
+    drilling_include_major_mines: bool = False
     #: A notice point within this distance (m) of a tenure counts as on it, as well as by tenure number.
     drilling_match_buffer_m: float = Field(default=500, ge=0)
 
@@ -197,7 +200,9 @@ def score_leads(
     if notices is None:
         drilling = pd.DataFrame(columns=COLUMNS)
     else:
-        drilling = drilling_summary(tenure, notices, config.drilling_match_buffer_m, as_of)
+        drilling = drilling_summary(
+            tenure, notices, config.drilling_match_buffer_m, as_of, include_major_mines=config.drilling_include_major_mines
+        )
     for col in COLUMNS:
         out[col] = keyed.map(drilling[col]) if len(drilling) else None
     unflagged = NOT_ASSESSED if notices is None else NONE_FOUND
@@ -211,7 +216,9 @@ def score_leads(
         "pending": config.drilling_pending_points,
         "lapsed": config.drilling_lapsed_points,
     }
-    out["drilling_points"] = out["drilling_flag"].map(bonus).fillna(0.0)
+    out["drilling_scored_flag"] = out["drilling_scored_flag"].fillna(out["drilling_flag"])
+    out["drilling_mine_scale"] = out["drilling_mine_scale"].fillna("")
+    out["drilling_points"] = out["drilling_scored_flag"].map(bonus).fillna(0.0)
     out["score"] = (
         (out["recency_points"] + out["count_points"] + out["legacy_points"] + out["drilling_points"])
         .clip(upper=100)

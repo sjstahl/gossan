@@ -36,7 +36,7 @@ CSV_COLUMNS = [
     "rank", "lead_id", "score", "claim_name", "owner", "tenure_type", "issue_date",
     "good_to_date", "area_ha", "recency_points", "count_points", "legacy_points",
     "aris_count", "aris_legacy_count", "aris_earliest_year", "aris_latest_year",
-    "aris_per_km2", "aris_numbers", "drilling_points", "drilling_flag", "drilling_active_count",
+    "aris_per_km2", "aris_numbers", "drilling_points", "drilling_flag", "drilling_mine_scale", "drilling_scored_flag", "drilling_active_count",
     "drilling_pending_count", "drilling_lapsed_count", "drilling_latest_filed", "drilling_operator",
     "drilling_notice_numbers",
 ]  # fmt: skip
@@ -100,7 +100,7 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
 US_CSV_COLUMNS = [
     "rank", "lead_id", "score", "claim_name", "owner", "tenure_type", "area_ha",
     "overlap_points", "proximity_points", "target_overlap_pct", "n_targets",
-    "nearest_occurrence_m", "occurrences_inside", "drilling_points", "drilling_flag", "drilling_active_count",
+    "nearest_occurrence_m", "occurrences_inside", "drilling_points", "drilling_flag", "drilling_mine_scale", "drilling_scored_flag", "drilling_active_count",
     "drilling_pending_count", "drilling_lapsed_count", "drilling_latest_filed", "drilling_operator",
     "drilling_notice_numbers",
 ]  # fmt: skip

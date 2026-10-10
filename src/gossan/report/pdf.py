@@ -377,7 +377,7 @@ def _sec_leads_us(f: Facts, lead_id: str | None, st: dict) -> list:
     rows: list[list[object]] = [["Rank", "Claim", "Case", "Score", "Target overlap", "Nearest MRDS", "Drilling"]]
     for r in f.leads.head(10).itertuples():
         near = "" if pd.isna(r.nearest_occurrence_m) else f"{r.nearest_occurrence_m:,.0f} m"
-        rows.append([r.rank, r.claim_name, r.lead_id, f"{r.score:g}", f"{r.target_overlap_pct:g}%", near, _drilling_label(getattr(r, "drilling_flag", "not assessed"))])
+        rows.append([r.rank, r.claim_name, r.lead_id, f"{r.score:g}", f"{r.target_overlap_pct:g}%", near, _drilling_label(getattr(r, "drilling_flag", "not assessed"), getattr(r, "drilling_mine_scale", ""))])
     out.append(_table(rows, [0.4 * inch, 1.6 * inch, 1.1 * inch, 0.55 * inch, 0.9 * inch, 0.9 * inch, 0.7 * inch], st))
     if "drilling_flag" in f.leads.columns and (f.leads["drilling_flag"] != "not assessed").any():
         out.append(
@@ -401,15 +401,16 @@ def _sec_leads_us(f: Facts, lead_id: str | None, st: dict) -> list:
     return out
 
 
-def _drilling_label(flag: object) -> str:
-    return {"none": "-", "not assessed": "n/a"}.get(str(flag), str(flag))
+def _drilling_label(flag: object, scale: object = "") -> str:
+    label = {"none": "-", "not assessed": "n/a"}.get(str(flag), str(flag))
+    return f"{label} (major mine)" if scale == "Major Mine" and label not in ("-", "n/a") else label
 
 
 def _featured_drilling(row) -> str:
     flag = str(row.get("drilling_flag", "not assessed"))
     if flag in ("none", "not assessed"):
         return "None found" if flag == "none" else "Not assessed"
-    detail = [flag, f"notice(s) {row['drilling_notice_numbers']}"]
+    detail = [flag + (" (major mine: no score bonus)" if row.get("drilling_mine_scale") == "Major Mine" else ""), f"notice(s) {row['drilling_notice_numbers']}"]
     if row["drilling_operator"]:
         detail.append(str(row["drilling_operator"]))
     return "; ".join(detail)
@@ -431,7 +432,7 @@ def _sec_leads(project: Project, f: Facts, lead_id: str | None, lead_geom, st: d
     )
     rows: list[list[object]] = [["Rank", "Tenure", "Claim", "Owner", "Issued", "Score", "ARIS", "Drilling"]]
     for r in f.leads.head(10).itertuples():
-        rows.append([r.rank, r.lead_id, r.claim_name, r.owner, r.issue_date, f"{r.score:g}", r.aris_count, _drilling_label(getattr(r, "drilling_flag", "not assessed"))])
+        rows.append([r.rank, r.lead_id, r.claim_name, r.owner, r.issue_date, f"{r.score:g}", r.aris_count, _drilling_label(getattr(r, "drilling_flag", "not assessed"), getattr(r, "drilling_mine_scale", ""))])
     out.append(_table(rows, [0.4 * inch, 0.7 * inch, 1.2 * inch, 1.6 * inch, 0.8 * inch, 0.5 * inch, 0.5 * inch, 0.7 * inch], st))
     if "drilling_flag" in f.leads.columns and (f.leads["drilling_flag"] != "not assessed").any():
         out.append(

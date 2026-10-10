@@ -806,7 +806,8 @@ def leads_run(
     If the drilling_notices layer is there ('gossan harvest --source drilling_notices', BC Notice
     of Work applications with surface drilling), each lead also gets a drilling flag (active,
     pending, lapsed, none) and a small score bonus (parameters: leads: drilling_active_points
-    10, drilling_pending_points 5, drilling_lapsed_points 0, drilling_match_buffer_m 500). The
+    10, drilling_pending_points 5, drilling_lapsed_points 0, drilling_match_buffer_m 500,
+    drilling_include_major_mines false: notices on major producing mines are labelled but score 0). The
     flag is a permit signal, not proof that a rig is on site. Without the layer the flag
     reads 'not assessed' and scores are unchanged.
 

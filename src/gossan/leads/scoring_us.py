@@ -53,6 +53,8 @@ class UsLeadsConfig(BaseModel):
     drilling_active_points: float = Field(default=10, ge=0)
     drilling_pending_points: float = Field(default=5, ge=0)
     drilling_lapsed_points: float = Field(default=0, ge=0)
+    #: Whether notices on major (producing) mines also earn the bonus; off by default.
+    drilling_include_major_mines: bool = False
     #: Months after posting during which a decision counts as active and a proposed action as pending.
     drilling_window_months: int = Field(default=18, ge=1)
 
@@ -114,7 +116,9 @@ def score_us_leads(
     if notices is None:
         drilling = pd.DataFrame(columns=COLUMNS)
     else:
-        drilling = drilling_summary(claims, notices, 0, as_of or datetime.now(UTC).date(), config.drilling_window_months)
+        drilling = drilling_summary(
+            claims, notices, 0, as_of or datetime.now(UTC).date(), config.drilling_window_months, config.drilling_include_major_mines
+        )
     keyed = claims["TENURE_NUMBER_ID"]
     for col in COLUMNS:
         out[col] = keyed.map(drilling[col]) if len(drilling) else None
@@ -124,7 +128,9 @@ def score_us_leads(
     for col in ("drilling_latest_filed", "drilling_operator", "drilling_notice_numbers"):
         out[col] = out[col].fillna("")
     bonus = {"active": config.drilling_active_points, "pending": config.drilling_pending_points, "lapsed": config.drilling_lapsed_points}
-    out["drilling_points"] = out["drilling_flag"].map(bonus).fillna(0.0)
+    out["drilling_scored_flag"] = out["drilling_scored_flag"].fillna(out["drilling_flag"])
+    out["drilling_mine_scale"] = out["drilling_mine_scale"].fillna("")
+    out["drilling_points"] = out["drilling_scored_flag"].map(bonus).fillna(0.0)
     out["score"] = (out["overlap_points"] + out["proximity_points"] + out["drilling_points"]).clip(upper=100).round(2)
     out = out.sort_values(["score", "target_overlap_pct", "lead_id"], ascending=[False, False, True]).reset_index(drop=True)
     out.insert(1, "rank", range(1, len(out) + 1))
