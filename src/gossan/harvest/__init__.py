@@ -17,6 +17,7 @@ from gossan.harvest.satellite.emit import EmitConnector
 from gossan.harvest.satellite.enmap import EnmapConnector
 from gossan.harvest.us_federal.blm_mlrs import BlmClaimsConnector
 from gossan.harvest.us_federal.mrds import MrdsConnector
+from gossan.harvest.us_state.ndep_notices import NdepNoticesConnector
 
 JURISDICTIONS = {"bc": "British Columbia (provincial)", "us": "United States (federal)"}
 
@@ -30,6 +31,7 @@ CONNECTORS: dict[str, type[Connector]] = {
         RgsConnector,
         MrdsConnector,
         BlmClaimsConnector,
+        NdepNoticesConnector,
         NrcanGeophysicsConnector,
         EmitConnector,
         EnmapConnector,

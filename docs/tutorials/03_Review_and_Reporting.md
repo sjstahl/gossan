@@ -266,6 +266,23 @@ A plain `gossan harvest` on a BC project also downloads `drilling_notices`: Mine
 
 ---
 
+## Drilling indicator on Nevada projects
+
+Nevada has no equivalent of BC's Notice of Work layer. The closest public signal is the **NDEP Bureau of Mining Regulation and Reclamation** (BMRR): a *Reclamation Permit for an Exploration Project* (a "drilling project") means exploration is planned or authorised on that ground.
+
+```powershell
+gossan harvest nv_project --source ndep_notices      # reads NDEP's public notice list
+gossan ingest-notices nv_project .\notices\          # PDFs you saved yourself (optional)
+gossan leads run nv_project
+```
+
+- **Coverage is best effort.** NDEP's public list (`ndep.nv.gov/posts/category/land`) is short and rolling, and nothing on the site lists every exploration permit. Each harvest keeps what it saw and the layer accumulates, so run it regularly. For full coverage, subscribe at the bottom of `ndep.nv.gov/posts` ("Get Notices", *Mining Regulation and Reclamation Public Notice*), save the PDFs from the emails, and load them with `gossan ingest-notices`.
+- Each notice's **sections, township and range** are turned into section polygons using the BLM national PLSS service, so a notice covers about a square mile per section and counts for **any claim it touches**. That is a coarse match: it means a permitted project area overlaps the claim.
+- **Flag and bonus:** a decision posted within the last 18 months is `active` (+10), a proposed action in that window is `pending` (+5), anything older is `lapsed` (+0), and the score is capped at 100. Change `drilling_active_points`, `drilling_pending_points`, `drilling_lapsed_points` and `drilling_window_months` under `parameters: leads:`. Mine permits are kept in the layer but never flag a claim.
+- **A permit is not a rig.** NDEP notices give a project and acreage, not hole counts or dates, and a permit can sit unused.
+
+---
+
 ## Leads on US projects
 
 `gossan leads run <name>` works on US projects once `gossan target` has run. BLM MLRS has no `ISSUE_DATE` or `GOOD_TO_DATE`, so the recency and expiry scoring used for BC is skipped. Each claim gets up to 100 points:

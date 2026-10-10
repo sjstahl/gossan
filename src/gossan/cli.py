@@ -229,6 +229,10 @@ def harvest(
     it with 'gossan ingest' (vector files and .tif grids). nrcan_geophysics needs a
     configured WCS (see its module docs) and otherwise prints manual instructions.
 
+    Nevada drilling indicator: --source ndep_notices reads NDEP reclamation permit notices (best
+    effort, a short rolling public list); catch the rest with 'gossan ingest-notices'. It is not
+    part of a plain harvest.
+
     Satellite scenes (--source emit,enmap,aster) are searched without credentials; downloading
     (--limit-scenes N) needs EARTHDATA_TOKEN (emit, aster) or EOC_USERNAME and EOC_PASSWORD
     (enmap). They are not part of a plain harvest. Search settings: satellite: in project.yaml.
@@ -527,6 +531,39 @@ def _georeference_maps(proj: Project, number: int, pdf: Path, pages: list[int]) 
     typer.echo(f"  georeferencing: {done} done, {skipped} already done, {len(pages) - done - skipped} need the manual route")
 
 
+@app.command("ingest-notices")
+def ingest_notices_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
+    files: Annotated[
+        list[Path],
+        typer.Argument(exists=True, readable=True, help="Notice PDFs, or folders of them."),
+    ],
+) -> None:
+    """Load Nevada NDEP reclamation permit notices from PDFs you saved (manual fallback).
+
+    'gossan harvest --source ndep_notices' only sees NDEP's short rolling public notice list
+    (ndep.nv.gov/posts/category/land). To catch every notice, subscribe at the bottom of
+    ndep.nv.gov/posts ("Get Notices", Mining Regulation and Reclamation Public Notice), save
+    the PDFs from the emails, and load them here: "Notice of Final Decision" and "Notice of
+    Proposed Action" PDFs for reclamation permits. Each PDF is copied to raw/ndep_notices/pdfs/,
+    its sections/township/range are resolved to PLSS section polygons (needs internet), and
+    the drilling_notices layer is rebuilt from everything you have loaded or harvested so far.
+    Exploration permits flag leads; mine permits are kept for context. Other PDFs are skipped.
+    """
+    proj = _open_project(project)
+    paths: list[Path] = []
+    for f in files:
+        paths += sorted(f.glob("*.pdf")) if f.is_dir() else [f]
+    try:
+        count, skipped = CONNECTORS["ndep_notices"](proj).ingest_pdfs(paths)  # type: ignore[attr-defined]
+    except OSError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    for line in skipped:
+        typer.secho(f"  skipped {line}", fg="yellow", err=True)
+    typer.echo(f"drilling_notices: {count} NDEP notice area(s) in data.gpkg ({len(skipped)} file(s) skipped)")
+
+
 @app.command("ingest-points")
 def ingest_points_cmd(
     project: Annotated[Path, typer.Argument(help="Project folder created by 'gossan new'.")],
@@ -778,7 +815,11 @@ def leads_run(
     'gossan target' polygons (target/targets.gpkg) and proximity to MRDS occurrences. Run
     'gossan target' first. BLM claims are quarter-section geocodes, not surveyed boundaries;
     MRDS is a historical inventory. Weights: parameters: leads: overlap_points,
-    proximity_points, proximity_m.
+    proximity_points, proximity_m. If the drilling_notices layer is there ('gossan harvest
+    --source ndep_notices', or 'gossan ingest-notices'), Nevada claims touched by an NDEP
+    exploration reclamation permit notice get a drilling flag and a small bonus
+    (drilling_active_points 10, drilling_pending_points 5, drilling_lapsed_points 0,
+    drilling_window_months 18). A permit signal, not proof of a rig on site.
     """
     proj = _open_project(project)
     try:

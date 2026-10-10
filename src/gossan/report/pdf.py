@@ -374,18 +374,28 @@ def _sec_leads_us(f: Facts, lead_id: str | None, st: dict) -> list:
             st["body"],
         )
     ]
-    rows: list[list[object]] = [["Rank", "Claim", "Case", "Score", "Target overlap", "Nearest MRDS"]]
+    rows: list[list[object]] = [["Rank", "Claim", "Case", "Score", "Target overlap", "Nearest MRDS", "Drilling"]]
     for r in f.leads.head(10).itertuples():
         near = "" if pd.isna(r.nearest_occurrence_m) else f"{r.nearest_occurrence_m:,.0f} m"
-        rows.append([r.rank, r.claim_name, r.lead_id, f"{r.score:g}", f"{r.target_overlap_pct:g}%", near])
-    out.append(_table(rows, [0.4 * inch, 2.0 * inch, 1.2 * inch, 0.6 * inch, 1.0 * inch, 1.0 * inch], st))
+        rows.append([r.rank, r.claim_name, r.lead_id, f"{r.score:g}", f"{r.target_overlap_pct:g}%", near, _drilling_label(getattr(r, "drilling_flag", "not assessed"))])
+    out.append(_table(rows, [0.4 * inch, 1.6 * inch, 1.1 * inch, 0.55 * inch, 0.9 * inch, 0.9 * inch, 0.7 * inch], st))
+    if "drilling_flag" in f.leads.columns and (f.leads["drilling_flag"] != "not assessed").any():
+        out.append(
+            Paragraph(
+                "Drilling: from Nevada NDEP reclamation permit notices for exploration projects (active = decision posted within the "
+                "scoring window, 18 months by default; pending = proposed action in the window; lapsed = older). Each notice covers whole PLSS sections, so it shows a "
+                "permitted project area touching the claim, not that a rig is on site.",
+                st["small"],
+            )
+        )
     out.append(Paragraph(f"Top {min(10, len(f.leads))} of {len(f.leads)} scored claims. Full list: outputs/leads_ranked.csv.", st["small"]))
     if lead_id is not None:
         row = f.leads[f.leads["lead_id"] == str(lead_id)].iloc[0]
         out.append(Paragraph(f"Featured lead: {escape(str(lead_id))}", st["h2"]))
         facts = [
             ["Claim", row["claim_name"]], ["Type", row["tenure_type"]], ["Area", f"{row['area_ha']} ha"],
-            ["Score", f"{row['score']:g} (rank {row['rank']}; target overlap {row['overlap_points']:g}, MRDS proximity {row['proximity_points']:g})"],
+            ["Score", f"{row['score']:g} (rank {row['rank']}; target overlap {row['overlap_points']:g}, MRDS proximity {row['proximity_points']:g}, drilling {row.get('drilling_points', 0):g})"],
+            ["Drilling notice", _featured_drilling(row)],
         ]  # fmt: skip
         out.append(_table(facts, [1.4 * inch, CONTENT_W - 1.4 * inch], st, header=False))
     return out

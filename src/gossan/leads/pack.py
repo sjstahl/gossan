@@ -188,6 +188,7 @@ def _build_us_pack(project: Project, lead: gpd.GeoSeries, crs: object) -> Path:
         ("Nearest MRDS occurrence (m)", lead["nearest_occurrence_m"]),
         ("MRDS occurrences on the claim", lead["occurrences_inside"]),
         ("Proximity points", lead["proximity_points"]),
+        ("Drilling notice (Nevada NDEP)", _drilling_text(lead)),
     ]  # fmt: skip
     table = doc.add_table(rows=0, cols=2, style="Light List")
     for label, value in fields:

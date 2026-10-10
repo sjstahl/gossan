@@ -100,7 +100,9 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
 US_CSV_COLUMNS = [
     "rank", "lead_id", "score", "claim_name", "owner", "tenure_type", "area_ha",
     "overlap_points", "proximity_points", "target_overlap_pct", "n_targets",
-    "nearest_occurrence_m", "occurrences_inside",
+    "nearest_occurrence_m", "occurrences_inside", "drilling_points", "drilling_flag", "drilling_active_count",
+    "drilling_pending_count", "drilling_lapsed_count", "drilling_latest_filed", "drilling_operator",
+    "drilling_notice_numbers",
 ]  # fmt: skip
 
 
@@ -122,7 +124,10 @@ def _run_us_leads(project: Project, as_of: date) -> LeadsResult:
         raise MissingLayerError(f"cannot read layer {TARGETS_LAYER!r} from {targets_path}; run 'gossan target' again") from e
     claims = read_layer(project, TENURE_LAYER).to_crs(crs)
     occurrences = read_layer(project, OCCURRENCE_LAYER).to_crs(crs)
-    leads = score_us_leads(claims, targets, occurrences, config)
+    notices = optional_layer(project, DRILLING_LAYER)
+    if notices is not None:
+        notices = notices.to_crs(crs)
+    leads = score_us_leads(claims, targets, occurrences, config, notices, as_of)
 
     project.outputs_dir.mkdir(exist_ok=True)
     csv_path = project.outputs_dir / LEADS_CSV
@@ -141,6 +146,7 @@ def _run_us_leads(project: Project, as_of: date) -> LeadsResult:
         "n_claims_in": len(claims),
         "n_targets_in": len(targets),
         "n_occurrences_in": len(occurrences),
+        "n_drilling_notices_in": None if notices is None else len(notices),
         "n_leads": len(leads),
     }
     project.provenance.log(identifier=f"outputs/{LEADS_CSV}", operation="write_leads_csv", parameters=params, **common)

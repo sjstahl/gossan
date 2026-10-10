@@ -14,6 +14,12 @@ Each notice is classified as of the scoring date:
 
 The tenure's flag is its best notice (active over pending over lapsed). The flag is reported
 separately from the score; the score only gets a small, configurable bonus (see ``LeadsConfig``).
+Nevada projects use the same flag from NDEP reclamation permit notices for exploration projects (see
+``gossan.harvest.us_state.ndep_notices``). Those notices have no end date, so a decision is ``active`` for
+``drilling_window_months`` (18) after it was posted and a proposed action ``pending`` for as long, then
+both are ``lapsed``; they are whole PLSS sections, so a notice counts for any claim it touches, and mine
+permits are ignored.
+
 This is a permit signal: it shows drilling is authorised or applied for, not that a rig is on site.
 """
 
@@ -42,8 +48,13 @@ def parse_bc_date(values: pd.Series) -> pd.Series:
     return pd.to_datetime(text, utc=True, errors="coerce", format="mixed")
 
 
-def classify_notices(notices: gpd.GeoDataFrame, as_of: date) -> pd.Series:
-    """``active``, ``pending``, ``lapsed`` or ``ignored`` for each notice, as of ``as_of``."""
+def classify_notices(notices: gpd.GeoDataFrame, as_of: date, window_months: int = 18) -> pd.Series:
+    """``active``, ``pending``, ``lapsed`` or ``ignored`` for each notice, as of ``as_of``.
+
+    Nevada notices (``NOTICE_SOURCE`` set) carry no authorisation end date, so a decision counts as
+    active for ``window_months`` after it was posted and a proposed action as pending for as long;
+    after that both are lapsed.
+    """
     as_of_ts = pd.Timestamp(as_of, tz="UTC")
     status = notices["NOW_APPLICATION_STATUS_DESC"].fillna("").str.strip().str.lower()
     closed = notices["PERMIT_STATUS_CODE_DESC"].fillna("").str.strip().str.lower() == "closed"
@@ -52,6 +63,14 @@ def classify_notices(notices: gpd.GeoDataFrame, as_of: date) -> pd.Series:
     out[status.isin(APPROVED) & ~(closed | expired)] = "active"
     out[status.isin(APPROVED) & (closed | expired)] = "lapsed"
     out[status.isin(IGNORED)] = "ignored"
+    if "NOTICE_SOURCE" in notices.columns:
+        nv = notices["NOTICE_SOURCE"].notna()
+        decided = notices["DECISION_DATE"].notna()
+        posted = parse_bc_date(notices["DECISION_DATE"].where(decided, notices["NOW_APPLICATION_SUBMITTED_DATE"]))
+        recent = (posted >= as_of_ts - pd.DateOffset(months=window_months)).fillna(False)
+        out[nv & decided & recent] = "active"
+        out[nv & ~decided & recent] = "pending"
+        out[nv & ~recent] = "lapsed"
     return out
 
 
@@ -60,21 +79,26 @@ def _tenure_numbers(text: object) -> set[int]:
 
 
 def drilling_summary(
-    tenure: gpd.GeoDataFrame, notices: gpd.GeoDataFrame, buffer_m: float, as_of: date
+    tenure: gpd.GeoDataFrame, notices: gpd.GeoDataFrame, buffer_m: float, as_of: date, window_months: int = 18
 ) -> pd.DataFrame:
     """Per tenure (indexed by ``TENURE_NUMBER_ID``): the columns in ``COLUMNS``.
 
     ``tenure`` has one row per tenure; both frames are in the same projected CRS.
     """
     notices = notices.copy()
-    notices["_status"] = classify_notices(notices, as_of)
+    notices["_status"] = classify_notices(notices, as_of, window_months)
     notices = notices[notices["_status"] != "ignored"]
+    if "PROJECT_TYPE" in notices.columns:  # Nevada mine permits are context, not a drilling signal
+        notices = notices[notices["PROJECT_TYPE"].isna() | (notices["PROJECT_TYPE"] == "exploration")]
+    if "TENURE_NUMBER" not in notices.columns:
+        notices["TENURE_NUMBER"] = None
     pairs: set[tuple[int, int]] = set()
     ids = {int(i) for i in tenure["TENURE_NUMBER_ID"]}
     for idx, text in notices["TENURE_NUMBER"].items():
         pairs |= {(t, idx) for t in _tenure_numbers(text) & ids}
     if len(notices) and len(tenure):
-        reach = notices.geometry.buffer(buffer_m) if buffer_m > 0 else notices.geometry  # buffer(0) empties a point
+        is_point = notices.geom_type == "Point"  # only points are buffered; Nevada notices are section polygons
+        reach = notices.geometry.where(~is_point | (buffer_m <= 0), notices.geometry.buffer(buffer_m))
         buffered = gpd.GeoDataFrame(geometry=reach, index=notices.index, crs=notices.crs)
         near = gpd.sjoin(tenure[["TENURE_NUMBER_ID", "geometry"]], buffered, how="inner", predicate="intersects")
         pairs |= {(int(t), int(i)) for t, i in zip(near["TENURE_NUMBER_ID"], near["index_right"], strict=True)}
