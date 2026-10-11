@@ -17,9 +17,12 @@ Evidence of mineralization (always used when the data exist):
     (degrees) and local relief (m, range within ``RELIEF_WINDOW_M``).
 ``rgs_idx_<model>``, ``rgs_pc<n>`` (``geochem_features: indices``, the default)
     Stream-sediment geochemistry scored as in ``gossan analyze`` (deposit-model pathfinder
-    indices with Fe-Mn scavenging correction, and the first ``geochem_components`` compositional
-    principal components), interpolated by inverse-distance weighting (``idw_neighbours``
-    nearest samples within ``idw_radius_m``; cells with no sample that close are missing).
+    indices corrected for scavenging and, with a DEM, catchment size and lithology; and the first
+    ``geochem_components`` compositional principal components). With ``geochem_spatial:
+    catchment`` (the default) and ``rasters/dem.tif``, each cell takes the score of the sample
+    its water drains to, which is what a stream sample measures; cells no sample drains, and
+    every cell without a DEM, use inverse-distance weighting (``idw_neighbours`` nearest samples
+    within ``idw_radius_m``; cells with no sample that close are missing).
 ``rgs_<element>`` (``geochem_features: elements``)
     The raw ``geochem_elements`` instead, log-scaled and interpolated the same way; for each
     element the analysis column with the most values is used (at least five samples).
@@ -89,7 +92,7 @@ from scipy.ndimage import (
 from scipy.spatial import cKDTree
 
 from gossan.analyze.common import AnalysisError
-from gossan.analyze.geochem import score_samples
+from gossan.analyze.geochem import score_project
 from gossan.analyze.occurrences import commodity_class
 from gossan.core.config import TargetConfig
 from gossan.core.project import Project
@@ -132,6 +135,8 @@ class FeatureStack:
     occurrence_class: str = "all"
     #: Bedrock unit code of every cell (-1: none) when ``unit_favourability`` is used, else None.
     units: np.ndarray | None = None
+    #: Datasets behind the geochemistry features (rgs, plus dem and bedrock_geology for catchments).
+    geochem_inputs: list[str] = field(default_factory=list)
 
     @property
     def model_names(self) -> list[str]:
@@ -400,16 +405,25 @@ def _terrain(project: Project, grid: Grid) -> dict[str, tuple[np.ndarray | None,
     }
 
 
-def _geochem_indices(project: Project, grid: Grid, cfg: TargetConfig) -> dict[str, tuple[np.ndarray | None, str]]:
+def _geochem_indices(
+    project: Project, grid: Grid, cfg: TargetConfig, inputs: list[str]
+) -> dict[str, tuple[np.ndarray | None, str]]:
+    """Sample scores spread over the grid: by catchment (each cell takes the score of the sample
+    its water reaches) where the DEM allows, by IDW elsewhere. Datasets used go into ``inputs``."""
     rgs = _layer(project, "rgs")
     if rgs is None:
         return {"rgs": (None, "no rgs layer (run 'gossan harvest --source rgs')")}
     rgs = rgs.to_crs(grid.crs)
     rgs = rgs[~rgs.geometry.is_empty & rgs.geometry.notna()].reset_index(drop=True)
     try:
-        scored = score_samples(rgs).samples
+        project_scores = score_project(project, rgs)
     except AnalysisError as e:
         return {"rgs": (None, str(e))}
+    scored = project_scores.result.samples
+    inputs += project_scores.inputs
+    labels = None
+    if cfg.geochem_spatial == "catchment" and project_scores.catchments is not None:
+        labels = project_scores.catchments.label_at(grid.xy[:, 0], grid.xy[:, 1])
     columns = [c for c in scored.columns if c.startswith("idx_")]
     columns += [f"PC{i}" for i in range(1, cfg.geochem_components + 1) if f"PC{i}" in scored]
     out: dict[str, tuple[np.ndarray | None, str]] = {}
@@ -421,7 +435,12 @@ def _geochem_indices(project: Project, grid: Grid, cfg: TargetConfig) -> dict[st
         if keep.sum() < MIN_GEOCHEM_SAMPLES:
             out[name] = (None, f"only {int(keep.sum())} scored sample(s)")
             continue
-        out[name] = (idw(grid, x[keep], y[keep], vals[keep], cfg.idw_neighbours, cfg.idw_radius_m), "")
+        values = idw(grid, x[keep], y[keep], vals[keep], cfg.idw_neighbours, cfg.idw_radius_m)
+        if labels is not None:
+            drained = labels >= 0
+            by_catchment = vals[np.where(drained, labels, 0)]
+            values = np.where(drained & np.isfinite(by_catchment), by_catchment, values)
+        out[name] = (values, "")
     return out
 
 
@@ -512,6 +531,8 @@ def input_datasets(stack: FeatureStack) -> list[str]:
         used.append("rgs" if name.startswith("rgs_") else FEATURE_DATASETS.get(name, name))
     if stack.units is not None:
         used.append("bedrock_geology")
+    if any(n.startswith("rgs_") for n in stack.names):
+        used += stack.geochem_inputs
     if stack.bias is not None:
         used += [FEATURE_DATASETS[n] for n in EFFORT_FEATURES]
     return list(dict.fromkeys(used))
@@ -525,7 +546,12 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
         "tenure_density": _tenure_density(project, grid, cfg),
         "aris_density": _aris_density(project, grid, cfg),
     }
-    geochem = _geochem_indices(project, grid, cfg) if cfg.geochem_features == "indices" else _geochem(project, grid, cfg)
+    geochem_inputs: list[str] = []
+    geochem = (
+        _geochem_indices(project, grid, cfg, geochem_inputs)
+        if cfg.geochem_features == "indices"
+        else _geochem(project, grid, cfg)
+    )
     candidates: dict[str, tuple[np.ndarray | None, str]] = {
         **(effort if cfg.effort == "feature" else {}),
         **_structure(project, grid),
@@ -584,5 +610,5 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
     return FeatureStack(
         names, X, missing, skipped, positives, n_total, n_outside,
         bias=bias, effort_weights=effort_weights, use_label_feature=cfg.occurrence_distance,
-        occurrence_class=cfg.occurrence_class, units=units,
+        occurrence_class=cfg.occurrence_class, units=units, geochem_inputs=geochem_inputs,
     )  # fmt: skip

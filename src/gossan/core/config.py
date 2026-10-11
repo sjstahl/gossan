@@ -57,6 +57,33 @@ class SatelliteConfig(BaseModel):
     aster_collection: str = "AST_L1T_004"
 
 
+class GeochemConfig(BaseModel):
+    """Settings for stream-sediment catchments (``gossan analyze``, and ``gossan target`` features)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Cell size (metres) the DEM is resampled to for flow routing. Finer resolves small streams
+    #: better but takes longer (50 m: about 20 s for a 3,600 km2 AOI).
+    catchment_resolution_m: float = Field(default=50.0, gt=0)
+    #: A sample is moved to the highest-flow cell within this distance (samples sit on streams, but
+    #: map and DEM streams do not line up exactly).
+    snap_m: float = Field(default=200.0, ge=0)
+    #: A cell is a stream (a snapping target) when it drains at least this area (km2).
+    stream_km2: float = Field(default=0.5, gt=0)
+    #: Also remove the effect of catchment size (dilution) from the corrected scores.
+    dilution_correction: bool = False
+    #: Also remove the effect of catchment lithology (expected background from the bedrock units
+    #: each sample drains). Off by default: on the East Kootenay test area both this and the
+    #: dilution correction made the pathfinder indices worse at picking out catchments that hold
+    #: known metallic occurrences (best-index AUC 0.79 Fe-Mn only, 0.70 with lithology, 0.76 with
+    #: dilution), because there the host units themselves carry the mineralization. Turn it on
+    #: where barren rocks (black shales, for example) dominate the anomalies. How much of each
+    #: element's variation lithology explains is reported either way (``catchment_r2_adjusted``).
+    lithology_levelling: bool = False
+    #: A unit must make up at least this share of the AOI's catchments to get its own background.
+    min_unit_share: float = Field(default=0.02, ge=0, lt=1)
+
+
 class TargetConfig(BaseModel):
     """Settings for prospectivity modelling (``gossan target``). See ``gossan.target``."""
 
@@ -115,6 +142,10 @@ class TargetConfig(BaseModel):
     geochem_features: Literal["indices", "elements"] = "indices"
     #: How many leading geochemical principal components become features ("indices" mode).
     geochem_components: int = Field(default=3, ge=0, le=6)
+    #: How sample scores spread over the grid: "catchment" (default; each cell takes the score of
+    #: the sample its water reaches, with IDW where no sample drains it; needs rasters/dem.tif) or
+    #: "idw" (inverse-distance weighting only).
+    geochem_spatial: Literal["catchment", "idw"] = "catchment"
 
 
 class ProjectConfig(BaseModel):
@@ -133,6 +164,7 @@ class ProjectConfig(BaseModel):
     georef: GeorefConfig = Field(default_factory=GeorefConfig)
     satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
     target: TargetConfig = Field(default_factory=TargetConfig)
+    geochem: GeochemConfig = Field(default_factory=GeochemConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")

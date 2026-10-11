@@ -737,8 +737,12 @@ def analyze_cmd(
     """Analyze the harvested data and summarize what it says.
 
     inventory: every layer and raster with its AOI coverage, source and licence.
-    geochem: RGS multi-element scores (normal scores, Fe-Mn scavenging correction, deposit-model
-    pathfinder indices, compositional PCA, multivariate anomalies).
+    geochem: RGS multi-element scores (normal scores, background correction, deposit-model
+    pathfinder indices, compositional PCA, multivariate anomalies). With rasters/dem.tif each
+    sample gets its stream catchment (flow routing over the DEM), written as rgs_catchments
+    polygons, and the summary reports how much of each element's variation the rocks drained
+    explain. Scores are corrected for Fe-Mn scavenging; catchment size (dilution) and lithology
+    corrections are opt-in (geochem: in project.yaml). Without a DEM, samples are points.
     occurrences: known MINFILE occurrences against bedrock units, periods, rock classes and
     faults, split into metallic and industrial classes, with production, inventory and nearest
     RGS sample per occurrence.
@@ -790,6 +794,21 @@ def _analysis_findings(name: str, result: object) -> list[str]:
         )
         if s["elements_dropped"]:
             lines.append(f"dropped: {', '.join(s['elements_dropped'])}")
+        c = s.get("catchments")
+        if isinstance(c, dict):
+            lines.append(
+                f"catchments from the DEM at {c['resolution_m']:.0f} m: median {c['median_catchment_km2']:.1f} km2, "
+                f"samples moved a median {c['median_snap_m']:.0f} m to the stream, {c['n_truncated']} possibly truncated"
+            )
+        elif c:
+            lines.append(f"catchments: {c}")
+        r2 = sorted(s.get("catchment_r2_adjusted", {}).items(), key=lambda kv: -kv[1])[:5]
+        if r2:
+            lines.append(
+                "variation explained by Fe-Mn, catchment size and the rocks drained: "
+                + ", ".join(f"{el} {v:.0%}" for el, v in r2)
+            )
+        lines.append(f"scores corrected for: {', '.join(s['background_predictors']) or 'nothing'}")
         for pc, load in list(s["pca_top_loadings"].items())[:3]:
             share = s["pca_explained_variance"][int(pc[2:]) - 1]
             lines.append(f"{pc} ({share:.0%}): +{'/'.join(load['positive'])}  vs  -{'/'.join(load['negative'])}")

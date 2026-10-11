@@ -23,8 +23,9 @@ def raster_path(project: Project, name: str) -> Path:
     return project.root / RASTERS_DIR / f"{name}.tif"
 
 
-def write_cog(project: Project, src: Path, dst: Path) -> dict[str, object]:
-    """Clip ``src`` to the project AOI, reproject to the project CRS and write a COG at ``dst``.
+def write_cog(project: Project, src: Path, dst: Path, buffer_m: float = 0.0) -> dict[str, object]:
+    """Clip ``src`` to the project AOI (grown by ``buffer_m`` metres), reproject to the project CRS
+    and write a COG at ``dst``.
 
     Returns facts about the result for provenance. Raises ``RasterError`` if the raster
     has no CRS or does not overlap the AOI.
@@ -37,6 +38,8 @@ def write_cog(project: Project, src: Path, dst: Path) -> dict[str, object]:
         da = da.rio.write_nodata(_default_nodata(da.dtype))
 
     aoi = project.read_aoi()
+    if buffer_m > 0:
+        aoi = aoi.set_geometry(aoi.buffer(buffer_m))
     try:
         # Clip in the source CRS first (cheap), then reproject the small result.
         da = da.rio.clip(aoi.to_crs(da.rio.crs).geometry, all_touched=True, drop=True)
@@ -56,6 +59,7 @@ def write_cog(project: Project, src: Path, dst: Path) -> dict[str, object]:
         "dtype": str(da.dtype),
         "nodata": float(da.rio.nodata),
         "resampling": "bilinear" if resampling == 1 else "nearest",
+        "aoi_buffer_m": buffer_m,
         "format": "COG",
     }
 

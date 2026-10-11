@@ -13,8 +13,8 @@ Terms of use: Open Government Licence - Canada
 (https://open.canada.ca/en/open-government-licence-canada). Attribution: "Contains information
 licensed under the Open Government Licence - Canada."
 
-The window is saved under ``raw/dem/`` as fetched (EPSG:3979) and then clipped and reprojected to
-the project CRS as ``rasters/dem.tif``.
+The window is saved under ``raw/dem/`` as fetched (EPSG:3979) and then clipped to the AOI plus
+``BUFFER_M`` and reprojected to the project CRS as ``rasters/dem.tif``.
 
 Manual fallback: download a tile from the record above (or any DEM), then
 ``gossan ingest <project> <dem.tif> --layer dem``.
@@ -35,8 +35,9 @@ from gossan.harvest.base import Connector, SearchItem
 
 MRDEM_URL = "https://canelevation-dem.s3.ca-central-1.amazonaws.com/mrdem-30/mrdem-30-dtm.tif"
 MRDEM_CRS = "EPSG:3979"
-#: Read this far beyond the AOI so terrain derivatives are not truncated at its edge.
-BUFFER_M = 2000.0
+#: Read and keep this far beyond the AOI, so terrain derivatives are right at its edge and stream
+#: catchments that drain into the AOI from outside are delineated in full (``gossan analyze``).
+BUFFER_M = 10_000.0
 LICENSE = "Open Government Licence - Canada"
 
 
@@ -89,7 +90,7 @@ class MrdemConnector(Connector):
         outputs = []
         for f in files:
             dst = raster_path(self.project, self.layer)
-            facts = write_cog(self.project, f, dst)  # derived output: replaced on re-harvest
+            facts = write_cog(self.project, f, dst, buffer_m=BUFFER_M)  # derived: replaced on re-harvest
             self.project.provenance.log(
                 dataset=self.layer,
                 source=self.source,
