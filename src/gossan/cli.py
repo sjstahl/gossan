@@ -856,8 +856,8 @@ def target_cmd(
     effort: Annotated[
         str | None,
         typer.Option(
-            help="Exploration effort (ARIS and tenure density): bias (weight background sampling; default), "
-            "feature (model inputs, the old behaviour) or ignore. Default: target.effort.",
+            help="Exploration effort (ARIS and tenure density): ignore (default), feature (model inputs, "
+            "the old behaviour) or bias (weight background sampling). Default: target.effort.",
         ),
     ] = None,
 ) -> None:
@@ -867,10 +867,11 @@ def target_cmd(
     --class); every other cell is unlabeled, not barren. Features describe the ground: distance
     to faults, thrusts, contacts and intrusions, unit age (bedrock_geology, faults), terrain
     (dem), RGS pathfinder indices and principal components, and regional geophysics rasters;
-    missing layers are skipped and listed. Exploration effort is not a feature by default: it
-    weights which cells serve as background, so the model is not rewarded for finding where
-    people already looked (--effort feature restores the old behaviour; with no evidence layers
-    at all it falls back to that automatically and says so). Needs at least
+    missing layers are skipped and listed. Exploration effort is not used by default, so the
+    model is not rewarded for finding where people already looked (--effort feature restores the
+    old behaviour; with no evidence layers at all it falls back to that automatically and says
+    so). Cross-validation reports an effort-matched AUC: occurrences against equally explored
+    ground, the fairer measure of whether the map finds deposits rather than camps. Needs at least
     target.min_positives (10) occurrences inside the AOI, so use a regional AOI. Writes target/prospectivity.tif (a relative score, not a probability of
     a deposit), target/uncertainty.tif (spread across bags), target/targets.gpkg (the top
     percentile as polygons), feature_stack.tif, feature_importance.csv, cv_report.json and

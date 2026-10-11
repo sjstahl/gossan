@@ -96,11 +96,13 @@ class TargetConfig(BaseModel):
     #: Which known occurrences are the positives, by BC deposit-profile class: "all", "metallic",
     #: "industrial" or "specialty" (see ``gossan.analyze.occurrences``). Needs DEPOSIT_TYPE_CODE1.
     occurrence_class: Literal["all", "metallic", "industrial", "specialty"] = "all"
-    #: Exploration effort (ARIS report density, tenure density). "bias" (default): not features;
-    #: unlabeled cells are drawn in proportion to effort, so the model contrasts occurrences with
-    #: equally explored ground instead of learning where people looked. "feature": the two layers
-    #: are model inputs (the pre-2026-10 behaviour). "ignore": neither.
-    effort: Literal["bias", "feature", "ignore"] = "bias"
+    #: Exploration effort (ARIS report density, tenure density). "ignore" (default): not used, so
+    #: the map is built from geology, geochemistry and terrain alone. "feature": the two layers are
+    #: model inputs (the pre-2026-10 behaviour; high plain AUC because occurrences sit where people
+    #: explored, so the map largely redraws known camps). "bias": not features, but unlabeled cells
+    #: are drawn in proportion to effort (target-group background); on the East Kootenay test
+    #: area it scored worst of the three on effort-matched AUC, so it is opt-in.
+    effort: Literal["bias", "feature", "ignore"] = "ignore"
     #: Add the label-derived distance to the nearest known occurrence as a feature. It mostly
     #: reproduces known camps, so it is off by default.
     occurrence_distance: bool = False

@@ -37,10 +37,12 @@ Exploration effort (see ``effort`` in the target config):
 
 These measure where people have looked, not where deposits are, and known occurrences sit where
 people looked. As features (``effort: feature``) they dominate the model and the map redraws
-known camps. By default (``effort: bias``) they are not features; instead they set how often each
-cell is drawn as unlabeled background (``FeatureStack.bias``), so occurrences are contrasted with
-ground that was explored about as much ("target-group background", a standard correction for
-sampling bias in presence-only modelling).
+known camps. By default (``effort: ignore``) they are not used. ``effort: bias`` instead sets how
+often each cell is drawn as unlabeled background (``FeatureStack.bias``), so occurrences are
+contrasted with ground that was explored about as much ("target-group background", a standard
+correction for sampling bias in presence-only modelling); it is opt-in because it scored worst on
+the East Kootenay test area. With no evidence layers at all, effort becomes the features again
+(and the stack says so) rather than leaving the model nothing to learn from.
 
 Label-derived (rebuilt for every training run from the training occurrences only):
 
@@ -534,23 +536,22 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
     skipped: dict[str, str] = {}
     bias = None
     effort_weights = _effort_bias(effort)
-    if cfg.effort == "bias":
-        evidence = [v for v, _ in candidates.values() if v is not None]
-        if not evidence and any(v is not None for v, _ in effort.values()):
-            # Nothing describes the ground itself (no geology, geochemistry, terrain or rasters):
-            # rather than fail, model effort as before and say so.
-            candidates = {**effort, **candidates}
-            skipped["evidence"] = (
-                "no evidence layers (faults, bedrock_geology, rgs, dem, rasters/): fell back to "
-                "exploration effort as features, so the map mirrors where people have explored"
-            )
-        else:
-            bias = effort_weights
-            for name in EFFORT_FEATURES:
-                skipped[name] = "exploration effort: weights background sampling, not a feature (effort: bias)"
+    evidence = [v for v, _ in candidates.values() if v is not None]
+    if cfg.effort != "feature" and not evidence and any(v is not None for v, _ in effort.values()):
+        # Nothing describes the ground itself (no geology, geochemistry, terrain or rasters):
+        # rather than fail, model effort as before and say so.
+        candidates = {**effort, **candidates}
+        skipped["evidence"] = (
+            "no evidence layers (faults, bedrock_geology, rgs, dem, rasters/): fell back to "
+            "exploration effort as features, so the map mirrors where people have explored"
+        )
+    elif cfg.effort == "bias":
+        bias = effort_weights
+        for name in EFFORT_FEATURES:
+            skipped[name] = "exploration effort: weights background sampling, not a feature (effort: bias)"
     elif cfg.effort == "ignore":
         for name in EFFORT_FEATURES:
-            skipped[name] = "exploration effort ignored (effort: ignore)"
+            skipped[name] = "exploration effort: not used (effort: ignore)"
     names: list[str] = []
     columns: list[np.ndarray] = []
     missing: dict[str, float] = {}

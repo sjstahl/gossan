@@ -158,20 +158,22 @@ def test_default_stack_uses_evidence_and_keeps_effort_out(project, grid):
         assert name in stack.names, name
     assert any(n.startswith("rgs_idx_") for n in stack.names) and "rgs_pc1" in stack.names
     assert "tenure_density" not in stack.names and "aris_density" not in stack.names
-    assert "weights background" in stack.skipped["tenure_density"]
-    assert stack.bias is not None and stack.bias.min() > 0 and stack.effort_weights is stack.bias
+    assert "not used" in stack.skipped["tenure_density"]
+    assert stack.bias is None and stack.effort_weights is not None  # kept for the effort-matched metric
     assert stack.model_names[-1] == "unit_favourability" and "dist_minfile" not in stack.model_names
     assert "dem" not in stack.names  # the DEM feeds terrain features, not a raw raster feature
-    assert set(input_datasets(stack)) >= {"minfile", "faults", "bedrock_geology", "rgs", "dem", "aris_index", "mto_tenure"}
+    assert set(input_datasets(stack)) >= {"minfile", "faults", "bedrock_geology", "rgs", "dem"}
+    assert "aris_index" not in input_datasets(stack)
 
 
 def test_effort_modes(project, grid):
     feature = build_stack(project, grid, evidence_cfg(effort="feature"))
     assert {"tenure_density", "aris_density"} <= set(feature.names) and feature.bias is None
     assert feature.effort_weights is not None  # still available for the effort-matched metric
-    ignore = build_stack(project, grid, evidence_cfg(effort="ignore"))
-    assert "tenure_density" not in ignore.names and ignore.bias is None
-    assert "aris_index" not in input_datasets(ignore)
+    bias = build_stack(project, grid, evidence_cfg(effort="bias"))
+    assert "tenure_density" not in bias.names and "weights background" in bias.skipped["tenure_density"]
+    assert bias.bias is not None and bias.bias.min() > 0
+    assert {"aris_index", "mto_tenure"} <= set(input_datasets(bias))
 
 
 def test_occurrence_classes(project, grid):
