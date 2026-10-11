@@ -4,6 +4,8 @@ import pytest
 from gossan.harvest.bc.aris_pdf import ArisPdfDownloader
 from gossan.harvest.bc.wfs import WfsConnector
 
+from gossan.harvest.national.mrdem import MrdemConnector
+
 FIXTURES = Path(__file__).parent / "fixtures"
 
 WFS_FIXTURES = {
@@ -13,6 +15,8 @@ WFS_FIXTURES = {
     "pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_PNT_SP": "rgs_wfs.geojson",
     "pub:WHSE_MINERAL_TENURE.HSP_NOTICE_OF_WORK_PA_POINT_SV": "drilling_notices_wfs.geojson",
 }
+#: Served for any other DataBC layer unless a test sets a response for it.
+WFS_DEFAULT_FIXTURE = "empty_wfs.geojson"
 
 
 @pytest.fixture(autouse=True)
@@ -31,11 +35,16 @@ def fixtures_dir() -> Path:
 
 
 class FakeWfs:
-    """Stands in for the network: serves fixture files by requested layer."""
+    """Stands in for the network: serves fixture files by requested layer.
+
+    Also stands in for the MRDEM window read (``dem_calls`` records the requested bounds), so a
+    plain BC harvest makes no live request.
+    """
 
     def __init__(self) -> None:
         self.responses: dict[str, str] = dict(WFS_FIXTURES)  # layer -> fixture file name
         self.calls: list[str] = []  # requested URLs
+        self.dem_calls: list[tuple[str, tuple[float, ...]]] = []
 
 
 @pytest.fixture
@@ -45,9 +54,14 @@ def wfs(monkeypatch) -> FakeWfs:
 
     def fake_get(self, url: str) -> bytes:
         fake.calls.append(url)
-        return (FIXTURES / fake.responses[self.type_name]).read_bytes()
+        return (FIXTURES / fake.responses.get(self.type_name, WFS_DEFAULT_FIXTURE)).read_bytes()
+
+    def fake_read_window(self, url: str, bounds: tuple[float, ...]) -> bytes:
+        fake.dem_calls.append((url, bounds))
+        return (FIXTURES / "grid_wgs84.tif").read_bytes()
 
     monkeypatch.setattr(WfsConnector, "_get", fake_get)
+    monkeypatch.setattr(MrdemConnector, "_read_window", fake_read_window)
     return fake
 
 

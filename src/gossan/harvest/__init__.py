@@ -6,11 +6,40 @@ true and whose jurisdiction matches the project's; ``--source`` names connectors
 """
 
 from gossan.harvest.base import Connector
+from gossan.harvest.bc_provincial.access import (
+    RoadsConnector,
+    TransmissionLinesConnector,
+)
+from gossan.harvest.bc_provincial.activity import (
+    CrownGrantsConnector,
+    HistoricNoticesConnector,
+    MajorMineAreasConnector,
+    PermittedMineAreasConnector,
+)
 from gossan.harvest.bc_provincial.aris import ArisIndexConnector
 from gossan.harvest.bc_provincial.drilling_notices import DrillingNoticesConnector
+from gossan.harvest.bc_provincial.geology import (
+    BedrockGeologyConnector,
+    FaultsConnector,
+    MineralPotentialConnector,
+    QuaternaryCoverConnector,
+)
+from gossan.harvest.bc_provincial.land_status import (
+    ConservanciesConnector,
+    IndianReservesConnector,
+    NationalParksConnector,
+    ParksProtectedConnector,
+    ReserveSitesConnector,
+    TreatyLandsConnector,
+)
+from gossan.harvest.bc_provincial.mineral_inventory import (
+    MinfileInventoryConnector,
+    MinfileProductionConnector,
+)
 from gossan.harvest.bc_provincial.minfile import MinfileConnector
 from gossan.harvest.bc_provincial.mto_tenure import MtoTenureConnector
-from gossan.harvest.bc_provincial.rgs import RgsConnector
+from gossan.harvest.bc_provincial.rgs import RgsConnector, RgsSurveyAreasConnector
+from gossan.harvest.national.mrdem import MrdemConnector
 from gossan.harvest.national.nrcan_geophysics import NrcanGeophysicsConnector
 from gossan.harvest.satellite.aster import AsterConnector
 from gossan.harvest.satellite.emit import EmitConnector
@@ -29,6 +58,30 @@ CONNECTORS: dict[str, type[Connector]] = {
         ArisIndexConnector,
         DrillingNoticesConnector,
         RgsConnector,
+        # BC: geology and mineral inventory
+        BedrockGeologyConnector,
+        FaultsConnector,
+        QuaternaryCoverConnector,
+        MineralPotentialConnector,
+        MinfileProductionConnector,
+        MinfileInventoryConnector,
+        RgsSurveyAreasConnector,
+        # BC: past and present activity
+        HistoricNoticesConnector,
+        PermittedMineAreasConnector,
+        MajorMineAreasConnector,
+        CrownGrantsConnector,
+        # BC: land status and access
+        ParksProtectedConnector,
+        ConservanciesConnector,
+        NationalParksConnector,
+        IndianReservesConnector,
+        TreatyLandsConnector,
+        ReserveSitesConnector,
+        RoadsConnector,
+        TransmissionLinesConnector,
+        # Canada: terrain
+        MrdemConnector,
         MrdsConnector,
         BlmClaimsConnector,
         NdepNoticesConnector,

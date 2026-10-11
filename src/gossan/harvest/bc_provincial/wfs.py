@@ -20,6 +20,13 @@ from gossan.harvest.vector_service import Download, VectorServiceConnector
 WFS_URL = "https://openmaps.gov.bc.ca/geo/pub/wfs"
 PAGE_SIZE = 5000
 OGL_BC = "Open Government Licence - British Columbia"
+OGL_CANADA = "Open Government Licence - Canada"
+#: Licence text for layers the BC Data Catalogue lists as "Access Only". Any record carrying it
+#: makes deliverables internal (see ``gossan.core.licensing``).
+ACCESS_ONLY_BC = (
+    "Access Only (BC Data Catalogue): no reproduction or redistribution "
+    "without written permission of the Province of BC"
+)
 
 
 class WfsConnector(VectorServiceConnector):

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from gossan.cli import app
 from gossan.core.project import Project
+from gossan.harvest import default_sources
 
 runner = CliRunner()
 
@@ -95,7 +96,7 @@ def test_harvest_defaults_to_all_default_sources_in_one_gpkg(project, wfs):
     # nrcan_geophysics needs configuration, so a plain harvest leaves it out.
     assert layer_names(project) == {"minfile", "mto_tenure", "aris_index", "rgs", "drilling_notices"}
     datasets = [r.dataset for r in project.provenance.read() if r.operation == "fetch"]
-    assert sorted(datasets) == ["aris_index", "drilling_notices", "minfile", "mto_tenure", "rgs"]
+    assert sorted(datasets) == sorted(default_sources("bc"))  # every source fetched, empty or not
 
 
 def test_harvest_empty_result_writes_no_layer(project, wfs):

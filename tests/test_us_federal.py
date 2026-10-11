@@ -46,7 +46,8 @@ def layers(project: Project) -> set[str]:
 
 
 def test_connectors_declare_their_jurisdiction_and_defaults_follow_it():
-    assert default_sources("bc") == ["minfile", "mto_tenure", "aris_index", "drilling_notices", "rgs"]  # BC gains the drilling indicator
+    assert default_sources("bc")[:5] == ["minfile", "mto_tenure", "aris_index", "drilling_notices", "rgs"]
+    assert not {"mrds", "blm_claims"} & set(default_sources("bc"))
     assert default_sources("us") == ["mrds", "blm_claims"]
     assert CONNECTORS["mrds"].jurisdiction == CONNECTORS["blm_claims"].jurisdiction == "us"
     assert CONNECTORS["aris_index"].jurisdiction == "bc"

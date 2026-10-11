@@ -20,7 +20,7 @@ British Columbia."
 
 from __future__ import annotations
 
-from gossan.harvest.bc_provincial.wfs import OGL_BC, WfsConnector
+from gossan.harvest.bc_provincial.wfs import ACCESS_ONLY_BC, OGL_BC, WfsConnector
 
 
 class RgsConnector(WfsConnector):
@@ -30,4 +30,21 @@ class RgsConnector(WfsConnector):
     source = "BC Geological Survey, RGS (DataBC WFS)"
     license = OGL_BC
     type_name = "pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_PNT_SP"
+    geometry_column = "GEOMETRY"
+
+
+class RgsSurveyAreasConnector(WfsConnector):
+    """RGS survey footprints touching the AOI, written to ``rgs_survey_areas``.
+
+    Layer ``pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_AREA_SP`` ("Regional Geochemical Survey
+    Areas"): one polygon per survey release with title, open-file number, sample media, element
+    and water analyses, original and update release years, and download links. It explains which
+    survey (and which lab methods and vintage) a sample comes from. Terms: **Access Only**
+    (https://catalogue.data.gov.bc.ca/dataset/0b4a6ffa-f896-4f72-8adc-efdd5174feb0): internal use.
+    """
+
+    name = "rgs_survey_areas"
+    source = "BC Geological Survey, RGS (DataBC WFS)"
+    license = ACCESS_ONLY_BC
+    type_name = "pub:WHSE_MINERAL_TENURE.GEOL_REG_GEOCHMCL_SURV_AREA_SP"
     geometry_column = "GEOMETRY"
