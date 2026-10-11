@@ -1063,6 +1063,16 @@ def _echo_target(r: TargetResult) -> None:
             typer.echo(f"  blocks {r.cv['block_size_m'] / 1000:.1f} km, {r.cv['buffer_m'] / 1000:.2f} km gap between test blocks and training cells")
         for note in r.cv["skipped"]:
             typer.secho(f"  CV: {note}", fg="yellow")
+    k = r.knowledge
+    if k and k.get("available"):
+        checks = k["checks"]
+        held = "" if checks.get("auc_fold_mean") is None else f"; held-out AUC {checks['auc_fold_mean']:.2f}"
+        typer.echo(
+            f"Knowledge score ({k['deposit_model']}; {', '.join(layer['layer'] for layer in k['layers'])}){held}; rank correlation with the forest "
+            f"{k['rank_correlation_with_forest']}, top-{100 - r.cfg.top_percentile:g}% overlap {k['top_overlap_with_forest']:.0%}"
+        )
+    elif k:
+        typer.secho(f"  knowledge score: {k['reason']}", fg="yellow")
     smoothed = f" of the score smoothed over {r.cfg.smooth_m:g} m" if r.cfg.smooth_m else ""
     typer.echo(
         f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile{smoothed} "
@@ -1248,6 +1258,12 @@ def leads_run(
         raise typer.Exit(1) from e
     leads = result.leads
     typer.echo(f"{len(leads)} lead(s) scored; wrote {result.csv_path} and the 'leads' layer")
+    for note in result.notes:
+        typer.secho(f"  note: {note}", fg="yellow", err=True)
+    combined = "combined_rank" in leads.columns
+    if combined:
+        typer.echo("Best by combined score (lead score and the model's prospectivity):")
+        leads = leads.sort_values("combined_rank")
     for r in leads.head(5).itertuples():
         name = r.claim_name if isinstance(r.claim_name, str) else "(unnamed)"
         detail = (
@@ -1255,7 +1271,11 @@ def leads_run(
             if hasattr(r, "overlap_points")
             else f"{r.aris_count} ARIS" + (f", drilling {r.drilling_flag}" if r.drilling_flag in ("active", "pending", "lapsed") else "")
         )
-        typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({detail})")
+        if combined:
+            detail += f", {r.target_overlap_pct:g}% in targets, prospectivity {r.prospectivity_pctile:g}th percentile"
+            typer.echo(f"  {r.combined_rank:>3}  {r.combined_score:>6}  {r.lead_id}  {name}  (lead rank {r.rank}, score {r.score}; {detail})")
+        else:
+            typer.echo(f"  {r.rank:>3}  {r.score:>6}  {r.lead_id}  {name}  ({detail})")
 
 
 @leads_app.command("pack")

@@ -135,7 +135,8 @@ def build_decisions(project: Project) -> TargetDecisionResult:
     targets = gpd.read_file(path, layer=TARGETS_LAYER, engine="pyogrio").to_crs(project.config.crs)
     if targets.empty:
         raise AnalysisError("target/targets.gpkg holds no targets")
-    t = targets[["rank", "target_id", "area_ha", "mean_score", "max_score", "mean_spread", "n_known_occurrences", "geometry"]].copy()
+    extra = [c for c in ("knowledge_pctile", "knowledge_support") if c in targets]  # from the knowledge-driven score
+    t = targets[["rank", "target_id", "area_ha", "mean_score", "max_score", "mean_spread", "n_known_occurrences", *extra, "geometry"]].copy()
     inputs: list[str] = []
     notes: list[list[str]] = [[] for _ in range(len(t))]
 
@@ -323,6 +324,10 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             notes[i].append(f"{row['dist_road_m'] / 1000:.1f} km from the nearest mapped road")
         if "n_aris_reports" in t and row["n_aris_reports"] == 0:
             notes[i].append("no assessment reports within 1 km")
+    if "knowledge_support" in t:
+        for i, row in t.reset_index(drop=True).iterrows():
+            if row["knowledge_support"] == "forest only":
+                notes[i].append(f"the geological reasoning gives it little support (knowledge score {row['knowledge_pctile']:.0f}th percentile)")
     t["notes"] = ["; ".join(n) or None for n in notes]
 
     table = gpd.GeoDataFrame(t, geometry="geometry", crs=targets.crs)

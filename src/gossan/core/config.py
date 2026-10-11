@@ -156,6 +156,31 @@ class TenureConfig(BaseModel):
     churn_transfers: int = Field(default=2, ge=1)
 
 
+class KnowledgeConfig(BaseModel):
+    """The knowledge-driven score that sits beside the random forest (``gossan.target.knowledge``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Switch the score off to skip it.
+    enabled: bool = True
+    #: Which deposit model's emphasis to use for the layer weights (starting points from general
+    #: exploration geology, not tuned or validated on any area). "generic": any metallic deposit.
+    deposit_model: Literal["generic", "sediment_hosted_zn_pb", "polymetallic_vein", "cu_porphyry_skarn", "gold_vein"] = "generic"
+    #: Favourable host rocks: a bedrock unit whose name contains any of these words (case-insensitive,
+    #: for example "Aldridge" or "limestone") counts as host ground. Empty: the host layer is not used.
+    #: This is the geologist's input; choosing units because occurrences sit in them makes the score's
+    #: own check circular.
+    host_units: list[str] = []
+    #: Replace individual layer weights (fault, contact, intrusive, host, geochem, magnetics, alteration);
+    #: 0 drops a layer.
+    weights: dict[str, float] = {}
+    #: Distance (metres) at which proximity to faults, to unit contacts and to intrusive rocks has
+    #: faded from fully favourable (on it) to nothing.
+    fault_range_m: float = Field(default=3000.0, gt=0)
+    contact_range_m: float = Field(default=1500.0, gt=0)
+    intrusive_range_m: float = Field(default=5000.0, gt=0)
+
+
 class TargetConfig(BaseModel):
     """Settings for prospectivity modelling (``gossan target``). See ``gossan.target``."""
 
@@ -250,6 +275,8 @@ class TargetConfig(BaseModel):
     #: the sample its water reaches, with IDW where no sample drains it; needs rasters/dem.tif) or
     #: "idw" (inverse-distance weighting only).
     geochem_spatial: Literal["catchment", "idw"] = "catchment"
+    #: The knowledge-driven score computed beside the model's (see ``KnowledgeConfig``).
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
 
 
 #: Version of the settings layout and defaults. ``gossan new`` writes every setting, defaults

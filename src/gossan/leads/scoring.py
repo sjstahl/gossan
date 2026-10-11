@@ -73,6 +73,9 @@ class LeadsConfig(BaseModel):
     drilling_include_major_mines: bool = False
     #: A notice point within this distance (m) of a tenure counts as on it, as well as by tenure number.
     drilling_match_buffer_m: float = Field(default=500, ge=0)
+    #: Weight (0 to 1) of the model's prospectivity percentile in ``combined_score`` (the rest is the lead
+    #: score). Used when 'gossan target' has run; lower it where the model's AUC is near 0.5.
+    target_weight: float = Field(default=0.3, ge=0, le=1)
 
     @classmethod
     def from_project(cls, project: Project) -> LeadsConfig:

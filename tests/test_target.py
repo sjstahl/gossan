@@ -376,8 +376,8 @@ def test_target_command_writes_every_output(make_project):
     assert result.exit_code == 0, result.output
     out = project.root / "target"
     assert sorted(p.name for p in out.iterdir()) == [
-        "cv_report.json", "feature_importance.csv", "feature_stack.tif", "grid.json",
-        "prospectivity.tif", "targets.gpkg", "uncertainty.tif",
+        "cv_report.json", "feature_importance.csv", "feature_stack.tif", "grid.json", "knowledge_report.json",
+        "prospectivity.tif", "targets.gpkg", "uncertainty.tif",  # this project has no layer for the knowledge score: only its report
     ]  # fmt: skip
     assert "Grid: 40 x 30 cells (1,200) at 100 m" in result.output
     assert "Features (6): tenure_density, aris_density, rgs_copper, rgs_gold, synth_magnetics, dist_minfile" in result.output
@@ -423,7 +423,7 @@ def test_target_run_is_logged_to_provenance(make_project):
     records = [r for r in project.provenance.read() if r.operation == "target_run"]
     assert {r.dataset for r in records} == {
         "target_prospectivity", "target_uncertainty", "target_feature_stack", "target_targets",
-        "target_feature_importance", "target_cv_report", "target_grid",
+        "target_feature_importance", "target_cv_report", "target_grid", "target_knowledge_report",
     }  # fmt: skip
     p = records[0].parameters
     assert p["resolution_m"] == 100.0 and p["grid"] == [30, 40] and p["n_cells_in_aoi"] == 1200

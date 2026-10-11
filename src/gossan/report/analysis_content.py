@@ -155,6 +155,7 @@ class Loaded:
     priorities: pd.DataFrame | None = None
     priorities_summary: dict | None = None
     spectral: dict | None = None
+    knowledge: dict | None = None
 
 
 def load(project: Project) -> Loaded:
@@ -193,6 +194,7 @@ def load(project: Project) -> Loaded:
         read_csv(project, "digitize_priorities"),
         _json(a / "digitize_priorities_summary.json"),
         _json(a / "spectral_summary.json"),
+        _json(t / "knowledge_report.json"),
     )
 
 
@@ -539,6 +541,59 @@ def _sec_targets(project: Project, L: Loaded, assets: Path) -> list[Block]:
         blocks.append(Para(
             "Occurrences sit where people explored, so a model can score well just by predicting exploration. The effort-matched figure weights each unlabeled cell by how heavily "
             "it was explored, and is the fairer test of whether the map finds deposits rather than camps.", small=True))
+    blocks += _knowledge_blocks(L)
+    return blocks
+
+
+def _knowledge_blocks(L: Loaded) -> list[Block]:
+    """The knowledge-driven score beside the forest: its layers, its checks and where the two disagree."""
+    k = L.knowledge
+    if not k:
+        return []
+    blocks: list[Block] = [Heading("A second opinion: the knowledge-driven score", 2)]
+    if not k.get("available"):
+        return blocks + [Para(f"Not available: {k.get('reason', 'no evidence layers')}.")]
+    host = f"; host units: {', '.join(k['host_units'])}" if k.get("host_units") else ""
+    blocks.append(
+        Para(
+            "The forest learns from the known occurrences, so it can only repeat what they share. This score is geological reasoning written down: each line of evidence "
+            f"is turned into a 0 to 1 favourability by a stated rule and the lines are averaged with set weights (deposit model: {k['deposit_model'].replace('_', ' ')}{host}). "
+            "It never looks at the occurrences, so they are an independent check on it. Weights are starting points from general exploration geology, not tuned on this area."
+        )
+    )
+    rows = [["Evidence", "Weight", "Covers", "AUC alone"]]
+    for layer in k["layers"]:
+        auc = layer.get("auc")
+        rows.append([layer["label"], f"{layer['weight_used']:g}", f"{layer['coverage_pct']:.0f}%", "n/a" if auc is None else f"{auc:.2f}"])
+    blocks.append(Table(rows, [2.6, 0.8, 0.8, 1.0], "AUC alone: how well that rule by itself ranks the known occurrences above other cells. 0.5 means it does not bear out here; below 0.5 the occurrences sit where the rule says they should not, and its weight is worth a second look."))
+    c, cv = k.get("checks") or {}, L.target_cv or {}
+
+    def fmt(mean, sd):
+        return "n/a" if mean is None else f"{mean:.2f} ± {sd:.2f}"
+
+    compare = [["Held-out measure", "Random forest", "Knowledge score"]]
+    compare.append(["AUC", fmt(cv.get("auc_mean"), cv.get("auc_std")), fmt(c.get("auc_fold_mean"), c.get("auc_fold_std"))])
+    if cv.get("auc_effort_matched_mean") is not None or c.get("auc_effort_matched_fold_mean") is not None:
+        compare.append(["Effort-matched AUC", fmt(cv.get("auc_effort_matched_mean"), cv.get("auc_effort_matched_std")), fmt(c.get("auc_effort_matched_fold_mean"), c.get("auc_effort_matched_fold_std"))])
+    cap_f = "n/a" if cv.get("capture_top5_mean") is None else f"{cv['capture_top5_mean']:.0%}"
+    cap_k = "n/a" if c.get("capture_top5_fold_mean") is None else f"{c['capture_top5_fold_mean']:.0%}"
+    compare.append(["Top-5% capture", cap_f, cap_k])
+    blocks.append(Table(compare, [2.0, 1.6, 1.6], "Same spatial folds for both. The knowledge score is not fitted, so its figures are its skill on those blocks."))
+    rho = k.get("rank_correlation_with_forest")
+    agree = f"Their rank correlation is {rho:.2f}; " if rho is not None else ""
+    support = ""
+    if L.decisions is not None and "knowledge_support" in L.decisions:
+        counts = L.decisions["knowledge_support"].value_counts().to_dict()
+        support = " Of the forest's targets, " + ", ".join(f"{counts.get(k_, 0)} {k_}" for k_ in ("supported", "partly", "forest only")) + "."
+    blocks.append(
+        Para(
+            f"{agree}the top {100 - k['top_percentile']:g}% of ground overlaps by {k['top_overlap_with_forest']:.0%} (shared cells over cells in either).{support} "
+            f"The knowledge score alone has {k['n_knowledge_targets']} target polygon(s) (target/knowledge_targets.gpkg); the ones that miss every forest target are where geology "
+            "looks good but the data the forest learned from are thin."
+        )
+    )
+    if k.get("note"):
+        blocks.append(Para(k["note"].capitalize() + ".", small=True))
     return blocks
 
 

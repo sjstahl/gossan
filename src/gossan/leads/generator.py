@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -10,6 +10,7 @@ import geopandas as gpd
 
 from gossan.core.licensing import derived_license
 from gossan.core.project import Project
+from gossan.leads.combine import link_evidence
 from gossan.leads.scoring import (
     ARIS_LAYER,
     DRILLING_LAYER,
@@ -50,6 +51,7 @@ DERIVED_LICENSE = (
 class LeadsResult:
     leads: gpd.GeoDataFrame
     csv_path: Path
+    notes: list[str] = field(default_factory=list)
 
 
 def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
@@ -68,10 +70,12 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
     if notices is not None:
         notices = notices.to_crs(crs)
     leads = score_leads(tenure, aris, config, as_of, notices)
+    linked = link_evidence(project, leads, config.target_weight)
+    leads = linked.leads
 
     project.outputs_dir.mkdir(exist_ok=True)
     csv_path = project.outputs_dir / LEADS_CSV
-    leads[CSV_COLUMNS].to_csv(csv_path, index=False)
+    leads[[*CSV_COLUMNS, *linked.columns]].to_csv(csv_path, index=False)
     common = {
         "dataset": LEADS_LAYER,
         "source": "gossan",
@@ -85,6 +89,8 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
         "n_aris_in": len(aris),
         "n_drilling_notices_in": None if notices is None else len(notices),
         "n_leads": len(leads),
+        "linked_columns": linked.columns,
+        "model_auc": linked.model_auc,
     }
     project.provenance.log(
         identifier=f"outputs/{LEADS_CSV}", operation="write_leads_csv", parameters=params, **common
@@ -94,7 +100,7 @@ def run_leads(project: Project, as_of: date | None = None) -> LeadsResult:
     project.provenance.log(
         identifier=LEADS_LAYER, operation="write_leads_layer", parameters=params, **common
     )
-    return LeadsResult(leads, csv_path)
+    return LeadsResult(leads, csv_path, linked.notes)
 
 
 US_CSV_COLUMNS = [

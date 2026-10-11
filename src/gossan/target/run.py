@@ -19,6 +19,11 @@ from gossan.target.features import (
     input_datasets,
 )
 from gossan.target.grid import Grid, GridError, build_grid
+from gossan.target.knowledge import (
+    annotate_knowledge_targets,
+    annotate_targets,
+    run_knowledge,
+)
 from gossan.target.model import pu_bagging
 from gossan.target.outputs import (
     NODATA,
@@ -45,6 +50,8 @@ class TargetResult:
     n_dropped_small: int = 0
     threshold: float = 0.0
     importances: dict[str, float] = field(default_factory=dict)
+    #: The knowledge-driven score's report (see ``gossan.target.knowledge``); None when switched off.
+    knowledge: dict[str, Any] | None = None
 
 
 def run_target(
@@ -89,6 +96,8 @@ def run_target(
         unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed, unlabeled_weights=stack.bias, negatives=stack.negatives,
     )  # fmt: skip
 
+    knowledge = run_knowledge(project, stack, grid, y, fit.score, cfg)
+
     out = target_dir(project.root)
     out.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -100,6 +109,15 @@ def run_target(
         "cv_report": out / "cv_report.json",
         "grid": out / "grid.json",
     }
+    has_knowledge = knowledge is not None and knowledge.score.size > 0
+    if knowledge is not None:
+        paths["knowledge_report"] = out / "knowledge_report.json"
+    if has_knowledge:
+        paths["knowledge"] = out / "knowledge.tif"
+        paths["knowledge_targets"] = out / "knowledge_targets.gpkg"
+    for stale in ("knowledge.tif", "knowledge_targets.gpkg", "knowledge_report.json"):  # an earlier run's, if this one has none
+        if out / stale not in paths.values():
+            (out / stale).unlink(missing_ok=True)
     write_cog(paths["prospectivity"], grid, {"prospectivity": grid.to_raster(fit.score)})
     write_cog(paths["uncertainty"], grid, {"uncertainty": grid.to_raster(fit.spread)})
     bands = {n: grid.to_raster(X[:, i]) for i, n in enumerate(stack.model_names)}
@@ -111,6 +129,16 @@ def run_target(
         smooth_cells=cfg.smooth_m / grid.resolution, min_cells=min_cells,
     )  # fmt: skip
     n_dropped = int(targets.attrs.get("n_dropped_small", 0))
+    knowledge_targets = None
+    if knowledge is not None:
+        write_json(paths["knowledge_report"], knowledge.report)
+    if has_knowledge:
+        write_cog(paths["knowledge"], grid, {"knowledge": grid.to_raster(knowledge.score)})
+        knowledge_targets = annotate_knowledge_targets(knowledge.targets, targets)
+        targets = annotate_targets(targets, grid, knowledge)
+        targets.attrs["n_dropped_small"] = n_dropped
+        if len(knowledge_targets):
+            knowledge_targets.to_file(paths["knowledge_targets"], layer="knowledge_top", driver="GPKG", engine="pyogrio")
     if len(targets):
         targets.to_file(paths["targets"], layer="targets_top", driver="GPKG", engine="pyogrio")
     importances = dict(zip(stack.model_names, (float(v) for v in fit.importances), strict=True))
@@ -175,9 +203,12 @@ def run_target(
         "n_targets_dropped_small": n_dropped,
         "score_threshold": threshold,
         "n_targets": len(targets),
+        "knowledge": None if knowledge is None else {k: v for k, v in knowledge.report.items() if k in ("available", "deposit_model", "layers", "checks", "rank_correlation_with_forest")},
     }
     for name, path in paths.items():
         if name == "targets" and not len(targets):
+            continue
+        if name == "knowledge_targets" and (knowledge_targets is None or not len(knowledge_targets)):
             continue
         project.provenance.log(
             dataset=f"target_{name}",
@@ -192,4 +223,5 @@ def run_target(
         grid, stack, cfg, cv,
         {k: v.relative_to(project.root).as_posix() for k, v in paths.items()},
         len(targets), n_dropped, threshold, importances,
+        None if knowledge is None else knowledge.report,
     )  # fmt: skip
