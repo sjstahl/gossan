@@ -49,7 +49,7 @@ def full_project(tmp_path) -> Project:
         {"PROTECTED_LANDS_NAME": ["TEST PARK"]}, geometry=[box(X0, Y0, X0 + 1000, Y0 + 1000)], crs=CRS))  # fmt: skip
     _write(project, "roads", gpd.GeoDataFrame(
         {"ROAD_CLASS": ["resource"]}, geometry=[LineString([(X0, Y0 + 2100), (X0 + W, Y0 + 2100)])], crs=CRS), ACCESS_ONLY_BC)  # fmt: skip
-    assert runner.invoke(app, ["target", "demo", "--n-bags", "4", "--folds", "3"]).exit_code == 0
+    assert runner.invoke(app, ["target", "demo", "--n-bags", "4", "--folds", "3", "--min-target-ha", "0"]).exit_code == 0
     result = runner.invoke(app, ["analyze", "demo"])
     assert result.exit_code == 0, result.output
     return Project(project.root.resolve())  # absolute, so tests can run from any directory

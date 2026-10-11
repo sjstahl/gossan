@@ -407,6 +407,17 @@ def _sec_targets(project: Project, L: Loaded, assets: Path) -> list[Block]:
             "The score is a relative ranking, not a probability of a deposit."
         )
     )
+    min_ha, smooth = grid.get("min_target_ha"), grid.get("smooth_m")
+    if min_ha is not None:
+        blocks.append(
+            Para(
+                "Targets are connected cells in the top percentile of the score"
+                + (f" smoothed over {smooth:g} m" if smooth else "")
+                + f". Polygons under {min_ha:g} ha are dropped ({grid.get('n_targets_dropped_small', 0)} here): the smallest unit "
+                "anyone can stake is a BC cell claim of roughly 16 to 21 ha, so a single high-scoring cell is not a target by itself.",
+                small=True,
+            )
+        )
     pm = raster_map(project, project.root / "target" / "prospectivity.tif", assets / "prospectivity.png", title="Prospectivity score", cmap="viridis",
                     colourbar_label="Relative score (0 to 1)", overlay_targets=True, overlay_occurrences=True)
     rng = finite_range(project.root / "target" / "prospectivity.tif")
@@ -434,6 +445,8 @@ def _sec_targets(project: Project, L: Loaded, assets: Path) -> list[Block]:
         if eff is not None:
             rows.append(["Effort-matched AUC", f"{eff:.2f} ± {cv['auc_effort_matched_std']:.2f}", f"same, against equally explored ground: {skill_word(eff)}"])
         rows.append(["Top-5% capture", f"{cv['capture_top5_mean']:.0%} ± {cv['capture_top5_std']:.0%}", "share of held-out occurrences in the top 5% of cells (chance: 5%)"])
+        if cv.get("capture_top5_smoothed_mean") is not None:
+            rows.append(["Top-5% capture, smoothed", f"{cv['capture_top5_smoothed_mean']:.0%} ± {cv['capture_top5_smoothed_std']:.0%}", f"same, choosing cells on the score smoothed over {grid.get('smooth_m', 0):g} m"])
         blocks.append(Table(rows, [1.5, 1.4, 3.6], f"{cv['n_folds_scored']} spatial folds; whole blocks of ground are held out so the model is tested on places it has not seen."))
         blocks.append(Para(
             "Occurrences sit where people explored, so a model can score well just by predicting exploration. The effort-matched figure weights each unlabeled cell by how heavily "
@@ -464,9 +477,10 @@ def _sec_decisions(project: Project, L: Loaded, assets: Path) -> list[Block]:
         ])
     blocks.append(Table(rows, [0.3, 0.55, 0.5, 0.5, 0.7, 1.5, 1.1, 0.5, 2.0], f"Top {min(len(d), MAX_TARGET_ROWS)} of {len(d)} targets by rank. The full table is analysis/target_decisions.csv (and the target_decisions layer of analysis.gpkg, for QGIS)."))
     open_t = d[d["ground_status"] == "open"]
-    blocks.append(Para(
-        f"{len(open_t)} of {len(d)} targets are on ground with no tenure recorded. Small polygons (a few hectares) are the model's single high-scoring cells; weigh larger, "
-        "contiguous targets and those near known geochemical anomalies more heavily.", small=True))
+    text = f"{len(open_t)} of {len(d)} targets are on ground with no tenure recorded."
+    if (d["area_ha"] < 20).any():
+        text += " Polygons of a few hectares are single high-scoring cells; weigh larger, contiguous targets and those near known geochemical anomalies more heavily."
+    blocks.append(Para(text, small=True))
     return blocks
 
 

@@ -109,6 +109,13 @@ class TargetConfig(BaseModel):
     seed: int = 42
     #: Cells at or above this percentile of the probability surface become target polygons.
     top_percentile: float = Field(default=95.0, gt=0, lt=100)
+    #: Gaussian smoothing (standard deviation, metres) of the score before the percentile is
+    #: taken, so isolated high cells merge into the neighbourhoods they sit in. 0 (default): none.
+    #: Cross-validation reports the held-out capture with and without it (``capture_top5_smoothed``).
+    smooth_m: float = Field(default=0.0, ge=0)
+    #: Target polygons smaller than this (hectares) are dropped. One 100 m cell is 1 ha; the default
+    #: is about one BC mineral cell claim (16 to 21 ha), the smallest unit anyone can stake.
+    min_target_ha: float = Field(default=20.0, ge=0)
     #: Neighbourhood for tenure density and the ARIS report-density kernel (metres).
     density_radius_m: float = Field(default=1000.0, gt=0)
     #: RGS geochemistry interpolation: search radius (metres) and neighbours.

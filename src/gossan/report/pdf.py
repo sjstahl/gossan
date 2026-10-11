@@ -544,7 +544,10 @@ def _sec_target(project: Project, f: Facts, st: dict, assets: Path) -> list:
             rows.append([r.rank, r.target_id, f"{r.area_ha:,.1f}", f"{r.mean_score:.3f}", f"{r.mean_spread:.3f}", r.n_known_occurrences])
         out.append(_table(rows, [0.5 * inch, 0.8 * inch, 1.0 * inch, 1.1 * inch, 1.1 * inch, 1.5 * inch], st))
         pct = float(targets["percentile"].iloc[0])
-        out.append(Paragraph(f"Connected cells at or above the {pct:g}th percentile of the score; {len(targets)} polygon(s), top {min(10, len(targets))} shown.", st["small"]))
+        extra = ""
+        if g.get("min_target_ha"):
+            extra = f" Polygons under {g['min_target_ha']:g} ha were dropped ({g.get('n_targets_dropped_small', 0)})."
+        out.append(Paragraph(f"Connected cells at or above the {pct:g}th percentile of the score; {len(targets)} polygon(s), top {min(10, len(targets))} shown.{extra}", st["small"]))
 
     out.append(Paragraph("What drives the model", st["h2"]))
     if importance:

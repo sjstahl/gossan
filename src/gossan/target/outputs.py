@@ -12,7 +12,7 @@ import numpy as np
 import rasterio
 from rasterio.features import shapes
 from rasterio.shutil import copy as rio_copy
-from scipy.ndimage import label
+from scipy.ndimage import gaussian_filter, label
 from shapely.geometry import shape
 
 from gossan.target.grid import Grid
@@ -45,20 +45,45 @@ def write_cog(
         rio_copy(tmp_tif, path, driver="COG", compress="DEFLATE")
 
 
+def smooth_scores(grid: Grid, values: np.ndarray, sigma_cells: float, rows: np.ndarray | None = None) -> np.ndarray:
+    """Gaussian-smoothed ``values`` (one per cell of ``rows``, default every in-AOI cell), using
+    only those cells: a cell next to the AOI edge, or to a gap, is averaged over the neighbours it
+    has instead of being pulled toward zero (normalized convolution)."""
+    if sigma_cells <= 0:
+        return values
+    idx = np.arange(grid.n_cells) if rows is None else rows
+    r, c = grid.rows_cols[0][idx], grid.rows_cols[1][idx]
+    num = np.zeros(grid.shape)
+    den = np.zeros(grid.shape)
+    num[r, c] = values
+    den[r, c] = 1.0
+    num = gaussian_filter(num, sigma_cells, mode="constant")
+    den = gaussian_filter(den, sigma_cells, mode="constant")
+    return num[r, c] / np.maximum(den[r, c], 1e-12)
+
+
 def top_percentile_polygons(
     grid: Grid,
     score: np.ndarray,
     spread: np.ndarray,
     positives: np.ndarray,
     percentile: float,
+    *,
+    smooth_cells: float = 0.0,
+    min_cells: int = 0,
 ) -> tuple[gpd.GeoDataFrame, float]:
     """Polygons of the connected cells at or above the ``percentile`` of the score.
 
-    Returns the targets (ranked by mean score, with area, scores, uncertainty and the number of
-    known occurrences they contain) and the score threshold used.
+    With ``smooth_cells`` the percentile is taken on the score smoothed by that many cells
+    (standard deviation), and polygons of fewer than ``min_cells`` cells are dropped; the scores
+    reported per target are always the unsmoothed ones. Returns the targets (ranked by mean score,
+    with area, scores, uncertainty and the number of known occurrences they contain) and the
+    score threshold used (on the smoothed score if smoothing). ``attrs["n_dropped_small"]`` holds
+    how many polygons the size limit removed.
     """
-    threshold = float(np.percentile(score, percentile))
-    keep = score >= threshold
+    selection = smooth_scores(grid, score, smooth_cells)
+    threshold = float(np.percentile(selection, percentile))
+    keep = selection >= threshold
     sc = grid.to_raster(score)
     sp = grid.to_raster(spread)
     known = np.zeros(grid.shape, dtype=bool)
@@ -66,8 +91,18 @@ def top_percentile_polygons(
     selected = np.zeros(grid.shape, dtype=bool)
     selected[grid.mask] = keep
     labels, n = label(selected)
+    n_dropped = 0
+    if min_cells > 1 and n:
+        sizes = np.bincount(labels.ravel())
+        small = np.flatnonzero(sizes < min_cells)
+        small = small[small > 0]
+        n_dropped = len(small)
+        labels = np.where(np.isin(labels, small), 0, labels)
+        n -= n_dropped
     if n == 0:
-        return gpd.GeoDataFrame({"target_id": []}, geometry=[], crs=grid.crs), threshold
+        empty = gpd.GeoDataFrame({"target_id": []}, geometry=[], crs=grid.crs)
+        empty.attrs["n_dropped_small"] = n_dropped
+        return empty, threshold
 
     rows = []
     for geom_dict, value in shapes(labels.astype(np.int32), mask=labels > 0, transform=grid.transform):
@@ -90,6 +125,7 @@ def top_percentile_polygons(
     gdf.insert(1, "target_id", [f"T{i:03d}" for i in gdf["rank"]])
     gdf["percentile"] = percentile
     gdf["score_threshold"] = threshold
+    gdf.attrs["n_dropped_small"] = n_dropped
     return gdf, threshold
 
 

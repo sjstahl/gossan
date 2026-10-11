@@ -42,6 +42,7 @@ class TargetResult:
     cv: dict[str, Any] | None
     outputs: dict[str, str] = field(default_factory=dict)
     n_targets: int = 0
+    n_dropped_small: int = 0
     threshold: float = 0.0
     importances: dict[str, float] = field(default_factory=dict)
 
@@ -104,7 +105,12 @@ def run_target(
     bands = {n: grid.to_raster(X[:, i]) for i, n in enumerate(stack.model_names)}
     write_cog(paths["feature_stack"], grid, bands)
 
-    targets, threshold = top_percentile_polygons(grid, fit.score, fit.spread, stack.positives, cfg.top_percentile)
+    min_cells = int(np.ceil(cfg.min_target_ha * 1e4 / grid.resolution**2))
+    targets, threshold = top_percentile_polygons(
+        grid, fit.score, fit.spread, stack.positives, cfg.top_percentile,
+        smooth_cells=cfg.smooth_m / grid.resolution, min_cells=min_cells,
+    )  # fmt: skip
+    n_dropped = int(targets.attrs.get("n_dropped_small", 0))
     if len(targets):
         targets.to_file(paths["targets"], layer="targets_top", driver="GPKG", engine="pyogrio")
     importances = dict(zip(stack.model_names, (float(v) for v in fit.importances), strict=True))
@@ -115,6 +121,9 @@ def run_target(
         **grid.describe(),
         "nodata": NODATA,
         "n_known_occurrences_in_aoi": n_pos,
+        "smooth_m": cfg.smooth_m,
+        "min_target_ha": cfg.min_target_ha,
+        "n_targets_dropped_small": n_dropped,
         "occurrence_class": cfg.occurrence_class,
         "effort": cfg.effort,
         "background_weighted_by_effort": stack.bias is not None,
@@ -152,10 +161,13 @@ def run_target(
             k: cv[k]
             for k in (
                 "n_folds_scored", "auc_mean", "auc_std", "auc_effort_matched_mean", "auc_effort_matched_std",
-                "capture_top5_mean", "capture_top5_std", "skipped",
+                "capture_top5_mean", "capture_top5_std", "capture_top5_smoothed_mean", "capture_top5_smoothed_std", "skipped",
             )
         },
         "top_percentile": cfg.top_percentile,
+        "smooth_m": cfg.smooth_m,
+        "min_target_ha": cfg.min_target_ha,
+        "n_targets_dropped_small": n_dropped,
         "score_threshold": threshold,
         "n_targets": len(targets),
     }
@@ -174,5 +186,5 @@ def run_target(
     return TargetResult(
         grid, stack, cfg, cv,
         {k: v.relative_to(project.root).as_posix() for k, v in paths.items()},
-        len(targets), threshold, importances,
+        len(targets), n_dropped, threshold, importances,
     )  # fmt: skip

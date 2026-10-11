@@ -903,6 +903,23 @@ def target_cmd(
             "the old behaviour) or bias (weight background sampling). Default: target.effort.",
         ),
     ] = None,
+    min_target_ha: Annotated[
+        float | None,
+        typer.Option(
+            "--min-target-ha", min=0,
+            help="Drop target polygons smaller than this many hectares. Default: target.min_target_ha (20, about "
+            "one BC mineral cell claim). 0 keeps every polygon, including single cells.",
+        ),
+    ] = None,
+    smooth_m: Annotated[
+        float | None,
+        typer.Option(
+            "--smooth-m", min=0,
+            help="Smooth the score over this many metres (Gaussian sigma) before choosing the top percentile, "
+            "so isolated high cells merge into their neighbourhood. Default: target.smooth_m (0, off). "
+            "Cross-validation then also reports the held-out capture of the smoothed score.",
+        ),
+    ] = None,
 ) -> None:
     """Rank the AOI by prospectivity: a PU-bagging random forest on harvested layers.
 
@@ -926,6 +943,7 @@ def target_cmd(
         for k, v in {
             "resolution_m": resolution, "n_bags": n_bags, "folds": folds, "seed": seed,
             "occurrence_class": occurrence_class, "effort": effort,
+            "min_target_ha": min_target_ha, "smooth_m": smooth_m,
         }.items()
         if v is not None
     }  # fmt: skip
@@ -959,6 +977,11 @@ def target_cmd(
                 f"Spatial CV ({r.cv['n_folds_scored']} fold(s)): AUC {r.cv['auc_mean']:.2f} +/- {r.cv['auc_std']:.2f}, "
                 f"top-5% capture {r.cv['capture_top5_mean']:.0%} +/- {r.cv['capture_top5_std']:.0%} (random: 5%)"
             )
+            if r.cv.get("capture_top5_smoothed_mean") is not None:
+                typer.echo(
+                    f"  smoothed over {r.cfg.smooth_m:g} m: top-5% capture {r.cv['capture_top5_smoothed_mean']:.0%} "
+                    f"+/- {r.cv['capture_top5_smoothed_std']:.0%} (unsmoothed above)"
+                )
             if r.cv.get("auc_effort_matched_mean") is not None:
                 typer.echo(
                     f"  effort-matched AUC {r.cv['auc_effort_matched_mean']:.2f} +/- {r.cv['auc_effort_matched_std']:.2f} "
@@ -966,7 +989,11 @@ def target_cmd(
                 )
         for note in r.cv["skipped"]:
             typer.secho(f"  CV: {note}", fg="yellow")
-    typer.echo(f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile (score {r.threshold:.3f})")
+    smoothed = f" of the score smoothed over {r.cfg.smooth_m:g} m" if r.cfg.smooth_m else ""
+    typer.echo(
+        f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile{smoothed} "
+        f"(threshold {r.threshold:.3f}); {r.n_dropped_small} under {r.cfg.min_target_ha:g} ha dropped"
+    )
     for key, rel in r.outputs.items():
         if key == "targets" and not r.n_targets:
             continue

@@ -38,6 +38,7 @@ from gossan.core.config import TargetConfig
 from gossan.target.features import FeatureStack, assemble_matrix
 from gossan.target.grid import Grid
 from gossan.target.model import pu_bagging
+from gossan.target.outputs import smooth_scores
 
 CAPTURE_FRACTION = 0.05
 
@@ -73,15 +74,20 @@ def drop_near(train: np.ndarray, test: np.ndarray, xy: np.ndarray, buffer_m: flo
 
 
 def fold_metrics(
-    score: np.ndarray, y_test: np.ndarray, effort: np.ndarray | None = None
+    score: np.ndarray, y_test: np.ndarray, effort: np.ndarray | None = None, smoothed: np.ndarray | None = None
 ) -> dict[str, float] | None:
-    """AUC, top-5% capture of held-out positives and (with ``effort``, one weight per test cell)
-    the effort-matched AUC; None if the fold has no positives or no unlabeled cells."""
+    """AUC, top-5% capture of held-out positives, (with ``effort``, one weight per test cell) the
+    effort-matched AUC and (with ``smoothed``, the test cells' smoothed score) the capture when
+    targets are chosen on the smoothed score; None if the fold has no positives or no unlabeled
+    cells."""
     n_pos = int(y_test.sum())
     if n_pos == 0 or n_pos == len(y_test):
         return None
     cutoff = np.quantile(score, 1 - CAPTURE_FRACTION)
     extra = {}
+    if smoothed is not None:
+        cut_s = np.quantile(smoothed, 1 - CAPTURE_FRACTION)
+        extra["capture_top5_smoothed"] = float(((smoothed >= cut_s) & (y_test == 1)).sum() / n_pos)
     if effort is not None:
         weights = np.where(y_test == 1, 1.0, effort)
         extra["auc_effort_matched"] = float(roc_auc_score(y_test, score, sample_weight=weights))
@@ -101,7 +107,7 @@ class CvResult:
 
     def summary(self) -> dict[str, object]:
         out: dict[str, object] = {"n_folds_scored": len(self.folds), "skipped": self.skipped, "folds": self.folds}
-        for key in ("auc", "auc_effort_matched", "capture_top5"):
+        for key in ("auc", "auc_effort_matched", "capture_top5", "capture_top5_smoothed"):
             vals = [f[key] for f in self.folds if key in f]
             out[f"{key}_mean"] = float(np.mean(vals)) if vals else None
             out[f"{key}_std"] = float(np.std(vals)) if vals else None
@@ -136,7 +142,10 @@ def run_cv(stack: FeatureStack, grid: Grid, cfg: TargetConfig, y: np.ndarray) ->
             unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed + i, unlabeled_weights=stack.bias,
         )  # fmt: skip
         effort = None if stack.effort_weights is None else stack.effort_weights[test]
-        metrics = fold_metrics(res.score, y[test], effort)
+        smoothed = None
+        if cfg.smooth_m > 0:  # smooth within the held-out blocks only, so no training cell leaks in
+            smoothed = smooth_scores(grid, res.score, cfg.smooth_m / grid.resolution, rows=test)
+        metrics = fold_metrics(res.score, y[test], effort, smoothed)
         if metrics is None:
             result.skipped.append(f"fold {i}: no positives or no unlabeled cells in the test blocks")
             continue

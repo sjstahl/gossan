@@ -232,3 +232,97 @@ def test_target_command_with_class_and_effort(project):
 def test_target_command_rejects_bad_options(project):
     result = runner.invoke(app, ["target", "demo", "--effort", "sometimes"])
     assert result.exit_code != 0 and "effort" in result.output
+
+
+# --- tiny targets: smoothing and the minimum size ---------------------------------------------
+
+
+@pytest.fixture
+def tiny_grid():
+    """A 10 x 10 grid of 100 m cells."""
+    return build_grid(gpd.GeoDataFrame(geometry=[box(X0, Y0, X0 + 1000, Y0 + 1000)], crs=CRS), CRS, 100.0, 10**6)
+
+
+def _spotted_score(tiny_grid):
+    """A 4 x 4 plateau of 0.8 with two stray 0.9 cells elsewhere, zeros everywhere else."""
+    score = np.zeros(tiny_grid.n_cells)
+    cell = lambda r, c: int(tiny_grid.index[r, c])
+    for r in range(2, 6):
+        for c in range(2, 6):
+            score[cell(r, c)] = 0.8
+    score[cell(8, 8)] = score[cell(0, 9)] = 0.9
+    return score, np.full(tiny_grid.n_cells, 0.05), cell
+
+
+def test_minimum_size_drops_stray_cells_and_counts_them(tiny_grid):
+    from gossan.target.outputs import top_percentile_polygons
+
+    score, spread, cell = _spotted_score(tiny_grid)
+    positives = np.array([cell(3, 3), cell(8, 8)])
+    kept, _ = top_percentile_polygons(tiny_grid, score, spread, positives, 85.0)  # keeps the 18 cells >= 0.8
+    assert len(kept) == 3 and kept.attrs["n_dropped_small"] == 0  # no limit: strays are targets
+    filtered, _ = top_percentile_polygons(tiny_grid, score, spread, positives, 85.0, min_cells=4)
+    assert len(filtered) == 1 and filtered.attrs["n_dropped_small"] == 2
+    only = filtered.iloc[0]
+    assert only["rank"] == 1 and only["target_id"] == "T001" and only["n_cells"] == 16
+    assert only["n_known_occurrences"] == 1  # the occurrence in the dropped stray cell is not counted
+
+
+def test_everything_below_the_minimum_gives_no_targets_and_a_count(tiny_grid):
+    from gossan.target.outputs import top_percentile_polygons
+
+    score, spread, cell = _spotted_score(tiny_grid)
+    none, _ = top_percentile_polygons(tiny_grid, score, spread, np.array([cell(3, 3)]), 85.0, min_cells=100)
+    assert len(none) == 0 and none.attrs["n_dropped_small"] == 3
+
+
+def test_smoothing_merges_cells_that_sit_close_together(tiny_grid):
+    from gossan.target.outputs import smooth_scores, top_percentile_polygons
+
+    score = np.zeros(tiny_grid.n_cells)
+    for r, c in [(4, 3), (4, 5), (5, 4), (3, 4)]:  # four high cells around an empty centre
+        score[int(tiny_grid.index[r, c])] = 0.9
+    spread = np.zeros(tiny_grid.n_cells)
+    raw, _ = top_percentile_polygons(tiny_grid, score, spread, np.array([], dtype=int), 97.0)
+    assert len(raw) == 4  # four separate single cells
+    merged, thr = top_percentile_polygons(tiny_grid, score, spread, np.array([], dtype=int), 97.0, smooth_cells=1.2)
+    assert len(merged) == 1 and merged.iloc[0]["n_cells"] == 3  # the top 3% of 100 cells, now one polygon
+    x, y = tiny_grid.xy[int(tiny_grid.index[4, 4])]  # the empty centre of the ring (raw score 0) is selected
+    assert merged.geometry.iloc[0].intersects(Point(x, y)) or merged.geometry.iloc[0].distance(Point(x, y)) <= 100
+    assert 0 <= merged.iloc[0]["max_score"] <= 0.9  # reported scores are the unsmoothed ones
+    smoothed = smooth_scores(tiny_grid, score, 1.2)
+    assert smoothed.max() < 0.9 and thr == pytest.approx(np.percentile(smoothed, 97.0))
+
+
+def test_smoothing_does_not_pull_edge_cells_toward_zero(tiny_grid):
+    from gossan.target.outputs import smooth_scores
+
+    flat = np.full(tiny_grid.n_cells, 0.5)
+    assert np.allclose(smooth_scores(tiny_grid, flat, 2.0), 0.5)  # corners and edges included
+    assert smooth_scores(tiny_grid, flat, 0.0) is flat
+    rows = np.arange(0, tiny_grid.n_cells, 2)
+    assert np.allclose(smooth_scores(tiny_grid, flat[rows], 2.0, rows=rows), 0.5)  # a subset of cells, same rule
+
+
+def test_target_command_applies_the_default_minimum_and_reports_it(project):
+    result = runner.invoke(app, ["target", "demo", "--folds", "3"])
+    assert result.exit_code == 0, result.output  # even if nothing survives the 20 ha limit
+    grid_json = json.loads((project.root / "target" / "grid.json").read_text())
+    assert grid_json["min_target_ha"] == 20.0 and grid_json["smooth_m"] == 0.0
+    assert f"{grid_json['n_targets_dropped_small']} under 20 ha dropped" in result.output
+    gpkg = project.root / "target" / "targets.gpkg"
+    if gpkg.exists():
+        assert (gpd.read_file(gpkg, layer="targets_top")["area_ha"] >= 20.0).all()
+
+
+def test_target_command_options_set_minimum_size_and_smoothing(project):
+    result = runner.invoke(app, ["target", "demo", "--folds", "3", "--min-target-ha", "2", "--smooth-m", "300"])
+    assert result.exit_code == 0, result.output
+    grid_json = json.loads((project.root / "target" / "grid.json").read_text())
+    assert grid_json["min_target_ha"] == 2.0 and grid_json["smooth_m"] == 300.0
+    assert "score smoothed over 300 m" in result.output and "under 2 ha dropped" in result.output
+    assert "smoothed over 300 m: top-5% capture" in result.output
+    cv = json.loads((project.root / "target" / "cv_report.json").read_text())
+    assert cv["capture_top5_smoothed_mean"] is not None
+    targets = gpd.read_file(project.root / "target" / "targets.gpkg", layer="targets_top")
+    assert len(targets) >= 1 and (targets["area_ha"] >= 2.0).all()
