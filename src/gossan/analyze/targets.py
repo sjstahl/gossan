@@ -41,6 +41,7 @@ from gossan.analyze.common import (
     write_layer,
     write_table,
 )
+from gossan.analyze.drill_results import classify_holes
 from gossan.analyze.occurrences import unit_name
 from gossan.core.project import Project
 
@@ -77,6 +78,42 @@ def _near(targets: gpd.GeoDataFrame, points: gpd.GeoDataFrame, radius: float) ->
 
 def _years(values: pd.Series) -> pd.Series:
     return pd.to_numeric(values, errors="coerce")
+
+
+def _drill_evidence(project: Project, t: gpd.GeoDataFrame) -> dict | None:
+    """Per target: how many digitized drill holes lie on or beside it (placed by their own collar
+    coordinates, within ``drill.near_m``; holes known only by their report's location within
+    ``drill.report_radius_m``) and what they found. None if no drill tables were approved."""
+    classified = classify_holes(project)
+    if classified is None or classified.holes.empty:
+        return None
+    cfg = project.config.drill
+    holes = classified.holes[classified.holes.geometry.notna()]
+    exact = holes[holes["location_quality"] == "collar_coordinates"]
+    report = holes[holes["location_quality"] == "report_location"]
+    counts, texts, notes = [], [], []
+    for geom in t.geometry:
+        near = exact[exact.distance(geom) <= cfg.near_m]
+        wide = report[report.distance(geom) <= cfg.report_radius_m]
+        n_by = near["class"].value_counts()
+        counts.append(len(near))
+        parts = [f"{int(v)} {k.replace('_', ' ')}" for k, v in n_by.items()]
+        texts.append(", ".join(parts) or None)
+        note = None
+        if len(near):
+            mineral = near[near["class"] == "mineralized"]
+            if len(mineral):
+                best = mineral.sort_values("best_grade", ascending=False).iloc[0]
+                note = f"drilled: {len(near)} hole(s), {len(mineral)} mineralized (best {best['best_element']} {best['best_grade']:g} {best['best_unit']} over {best['best_interval']}, ARIS {best['aris_number']})"
+            elif (near["class"] == "barren").any():
+                note = f"already drilled: {len(near)} hole(s), {int((near['class'] == 'barren').sum())} barren and none mineralized (a hole tests only its own line)"
+            else:
+                note = f"drilled: {len(near)} hole(s), inconclusive or without usable assays"
+        elif len(wide):
+            reports = ", ".join(sorted({str(int(n)) for n in wide["aris_number"].dropna()})[:3])
+            note = f"ARIS report(s) {reports} describe drilling near it, but the holes could not be placed"
+        notes.append(note)
+    return {"n": counts, "text": texts, "notes": notes}
 
 
 def _tenure_changes(project: Project) -> gpd.GeoDataFrame | None:
@@ -201,6 +238,13 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             summaries.append("; ".join(f"{k.replace('_', ' ')} {int(v)}" for k, v in counts.items()))
             notes[i].append(f"tenure activity on or beside it between snapshots ({summaries[-1]}; {hit['after'].min()} to {hit['by'].max()})")
         t["tenure_changes"] = summaries
+    drilled = _drill_evidence(project, t)
+    if drilled is not None:
+        inputs.append("aris_pdfs")  # the drill tables are digitized ARIS reports
+        t["n_drill_holes"], t["drill_result"] = drilled["n"], drilled["text"]
+        for i, note in enumerate(drilled["notes"]):
+            if note:
+                notes[i].append(note)
     grants = read_layer(project, "crown_grants")
     if grants is not None:
         inputs.append("crown_grants")

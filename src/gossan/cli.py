@@ -320,10 +320,18 @@ def harvest(
         int,
         typer.Option(
             min=0,
-            help="Download up to this many ARIS report PDFs (newest first) from the aris_index "
+            help="Download up to this many ARIS report PDFs (newest first, or see --pdf-order) from the aris_index "
             "layer into raw/aris_pdfs/. 0 (default) downloads none; reports can be tens of MB.",
         ),
     ] = 0,
+    pdf_order: Annotated[
+        str,
+        typer.Option(
+            "--pdf-order",
+            help="Order of --limit-pdfs: newest (default) or priority, the reports ranked by 'gossan analyze --steps priorities' "
+            "(drilling reports near the targets, not yet digitized) first.",
+        ),
+    ] = "newest",
     limit_scenes: Annotated[
         int,
         typer.Option(
@@ -363,9 +371,11 @@ def harvest(
 
     failed = bool(harvest_sources(proj, names, _CliReporter(), limit_scenes=limit_scenes).failures)
 
+    if pdf_order not in {"newest", "priority"}:
+        raise typer.BadParameter("use newest or priority", param_hint="--pdf-order")
     if limit_pdfs:
         try:
-            result = ArisPdfDownloader(proj).run(limit_pdfs)
+            result = ArisPdfDownloader(proj).run(limit_pdfs, pdf_order)
         except FileNotFoundError as e:
             typer.secho(f"Error: {e}", fg="red", err=True)
             raise typer.Exit(1) from e
@@ -932,6 +942,31 @@ def _analysis_findings(name: str, result: object) -> list[str]:
         for o in s["recent_staking_by_owner"][:3]:
             lines.append(f"recently staked by {o['owner']}: {o['tenures']} tenure(s), {o['hectares']:,.0f} ha")
         lines.extend(f"note: {n}" for n in s["notes"])
+    elif name == "priorities":
+        s = result.summary  # type: ignore[attr-defined]
+        if not s["available"]:
+            return [s["reason"]]
+        lines.append(
+            f"{s['n_drilling_reports']} of {s['n_reports']} ARIS reports describe drilling; {s['n_digitized']} digitized; "
+            f"{s['n_tier1']} not yet digitized lie within {s['radius_m'] / 1000:g} km of a {s['reference']}, {s['n_tier2']} more within 5 km"
+        )
+        for r in s["top"][:3]:
+            dist = r.get(f"distance_to_nearest_{s['reference'].replace(' ', '_')}_m")
+            lines.append(f"#{r['priority']} ARIS {r['aris_number']} ({r['year']}) {str(r['title'])[:60]}" + (f", {dist / 1000:.1f} km from the nearest {s['reference']}" if dist is not None else ""))
+        if s["top"]:
+            lines.append("download them first: gossan harvest <project> --limit-pdfs N --pdf-order priority")
+    elif name == "drilling":
+        s = result.summary  # type: ignore[attr-defined]
+        if not s["available"]:
+            return [s["reason"]]
+        c, loc = s["by_class"], s["by_location"]
+        lines.append(f"{s['n_holes']} hole(s) from {s['n_reports']} report(s): " + ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in c.items() if v))
+        lines.append(f"placed by collar coordinates {loc['collar_coordinates']}, by report location {loc['report_location']}, not placed {loc['unplaced']}")
+        left = s["left_out_of_grades"]
+        if left["no_unit"] or left["unknown_unit"]:
+            lines.append(f"left out of the grades: {left['no_unit']} value(s) with no unit, {left['unknown_unit']} with an unknown unit")
+        for h in s["mineralized_holes"][:3]:
+            lines.append(f"mineralized: {h['hole']} {h['element']} {h['grade']:g} {h['unit']} over {h['interval']}")
     elif name == "targets":
         s = result.summary  # type: ignore[attr-defined]
         lines.append(f"{s['n_targets']} target(s): " + ", ".join(f"{k} {v}" for k, v in s["by_ground_status"].items()))
@@ -976,6 +1011,17 @@ def _echo_target(r: TargetResult) -> None:
     typer.echo(f"Known occurrences used as positives{cls}: {len(r.stack.positives)}")
     if r.stack.bias is not None:
         typer.echo("Background cells drawn in proportion to exploration effort (effort: bias)")
+    if r.cfg.drill_labels != "off":
+        n_barren = 0 if r.stack.barren_cells is None else len(r.stack.barren_cells)
+        if n_barren or r.stack.n_drill_positives_added:
+            used = (
+                f"; training on {n_barren} barren cell(s) as negatives and {r.stack.n_drill_positives_added} extra positive(s)"
+                if r.cfg.drill_labels == "train"
+                else "; used to evaluate only (drill_labels: train would also train on them)"
+            )
+            typer.echo(f"Drill results: {n_barren} cell(s) hold a barren hole{used}")
+        elif r.stack.drill_note and r.stack.drill_note != "no approved drill tables":
+            typer.secho(f"  drill results: {r.stack.drill_note}", fg="yellow")
     typer.echo(f"Features ({len(r.stack.model_names)}): {', '.join(r.stack.model_names)}")
     for name, reason in r.stack.skipped.items():
         typer.secho(f"  skipped {name}: {reason}", fg="yellow")
@@ -989,6 +1035,11 @@ def _echo_target(r: TargetResult) -> None:
                 typer.echo(
                     f"  smoothed over {r.cfg.smooth_m:g} m: top-5% capture {r.cv['capture_top5_smoothed_mean']:.0%} "
                     f"+/- {r.cv['capture_top5_smoothed_std']:.0%} (unsmoothed above)"
+                )
+            if r.cv.get("auc_vs_barren_mean") is not None:
+                typer.echo(
+                    f"  AUC against known-barren drill cells: {r.cv['auc_vs_barren_mean']:.2f} +/- {r.cv['auc_vs_barren_std']:.2f} "
+                    f"({r.cv['n_barren_cells']} such cell(s); the only comparison with real negatives; 0.5 = no skill)"
                 )
             if r.cv.get("auc_effort_matched_mean") is not None:
                 typer.echo(

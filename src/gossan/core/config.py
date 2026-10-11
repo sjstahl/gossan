@@ -85,6 +85,43 @@ class GeochemConfig(BaseModel):
     min_unit_share: float = Field(default=0.02, ge=0, lt=1)
 
 
+class DrillConfig(BaseModel):
+    """Settings for classifying digitized drill holes (``gossan analyze --steps drilling``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Screening grades above which an interval counts as mineralized, in each element's canonical
+    #: unit (Au, Ag: g/t; the rest: %). They are deliberately far below economic grades: they mean
+    #: "mineralization is present here", not "an economic intercept". Elements not listed are ignored.
+    thresholds: dict[str, float] = Field(
+        default_factory=lambda: {
+            "Au": 0.3,
+            "Ag": 30.0,
+            "Cu": 0.1,
+            "Pb": 0.5,
+            "Zn": 0.5,
+            "Mo": 0.01,
+            "Ni": 0.1,
+            "Co": 0.02,
+            "W": 0.05,
+            "Sb": 0.1,
+        }
+    )
+    #: A hole is called barren only if it was sampled over at least this many metres...
+    min_metres: float = Field(default=20.0, gt=0)
+    #: ...in at least this many intervals...
+    min_samples: int = Field(default=5, ge=1)
+    #: ...and no interval reached this fraction of any threshold (so a marginal hole is inconclusive).
+    barren_fraction: float = Field(default=0.5, gt=0, le=1)
+    #: Collar coordinates must land within this distance of the AOI to count as placed; otherwise they
+    #: are probably a local mine grid, the wrong zone or datum.
+    placement_buffer_m: float = Field(default=3000.0, ge=0)
+    #: A target counts as drilled by holes within this distance of it (placed collars)...
+    near_m: float = Field(default=500.0, ge=0)
+    #: ...or within this distance of a report's location when the hole itself could not be placed.
+    report_radius_m: float = Field(default=1500.0, ge=0)
+
+
 class TenureConfig(BaseModel):
     """Settings for the tenure watchlist (``gossan analyze --steps tenure``)."""
 
@@ -120,6 +157,15 @@ class TargetConfig(BaseModel):
     #: shorter side) and the gap left between test blocks and training cells.
     folds: int = Field(default=5, ge=2)
     block_size_m: float | None = Field(default=None, gt=0)
+    #: How digitized drill results (``gossan analyze --steps drilling``; collars placed by coordinates
+    #: only) enter the model. "evaluate" (default): the model is not changed, but cross-validation also
+    #: reports how well occurrences rank above known-barren drill cells (``auc_vs_barren``), the one
+    #: place the data hold real negatives. "train": barren holes also become negatives in every bag and
+    #: mineralized holes add positives. "off": ignored. "train" has not been validated on real digitized
+    #: data (none was available when it was written), so it is opt-in.
+    drill_labels: Literal["off", "evaluate", "train"] = "evaluate"
+    #: Fewest cells holding a barren hole for them to be used at all.
+    min_drill_negatives: int = Field(default=5, ge=1)
     #: Gap (metres) left between held-out blocks and training cells. Neighbouring cells look alike,
     #: so without a gap the model is tested beside what it trained on and the scores flatter it:
     #: on the East Kootenay test area the effort-matched AUC went 0.63 (no gap), 0.56 (2 km), 0.52
@@ -232,6 +278,7 @@ class ProjectConfig(BaseModel):
     target: TargetConfig = Field(default_factory=TargetConfig)
     geochem: GeochemConfig = Field(default_factory=GeochemConfig)
     tenure: TenureConfig = Field(default_factory=TenureConfig)
+    drill: DrillConfig = Field(default_factory=DrillConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")

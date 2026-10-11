@@ -312,6 +312,36 @@ gossan run skeena_2026 --steps harvest,analyze,report
 
 On Windows, Task Scheduler can run that command weekly (**Create Basic Task**, trigger *Weekly*, action *Start a program*, program `C:\gossan\venv\Scripts\gossan.exe`, arguments as above, *Start in* your base folder). Each run adds a snapshot only if the tenure layer actually changed.
 
+### Closing the loop: drilling results back into the targets
+
+Digitized tables are not only an archive. Approved collar and assay tables feed the analysis, the decision table and (optionally) the model. The order of work:
+
+1. **Find the reports worth the effort.** `gossan analyze skeena_2026 --steps priorities` ranks the ARIS reports that describe drilling and are not digitized yet, by how close their location is to a target, then by reported spend. The analysis report lists them under *Drilling evidence*.
+2. **Download them first.** `gossan harvest skeena_2026 --source aris_index --limit-pdfs 3 --pdf-order priority` fetches the top-ranked reports instead of the newest.
+3. **Digitize and review** as described above: extract the collar and assay tables, check them against the scan, and approve them. Only approved rows enter the database.
+4. **Analyze.** `gossan analyze skeena_2026 --steps drilling,targets` places each hole, grades it and classifies it.
+
+What the drilling step assumes, and what you should check:
+
+| Topic | Rule |
+|---|---|
+| Collar coordinates | Read as UTM in the project's zone and the datum set under `georef:` in `project.yaml` (NAD83 default; old maps are often NAD27). A collar that lands outside the area is **not placed** (a local mine grid, or the wrong zone or datum). Easting and northing swapped round are corrected. A hole that cannot be placed but whose report is in the ARIS index is put at the report's location and marked as such. |
+| Units | Au and Ag are converted to g/t, other elements to %. ppm, ppb, oz/t and % are understood. **An assay column with no unit is not used**: a bare "Au" could be ppb or g/t, and guessing wrong turns barren ground into a discovery. The report counts such values so you can fix the table. |
+| Below detection | `<5` counts as zero grade. |
+| Classes | *mineralized*: an interval reaches the screening grade (`drill: thresholds:`, far below economic grades: Au 0.3 g/t, Cu 0.1 %, ...). *barren*: at least 20 m sampled in 5 or more intervals and nothing within half of any screening grade. Otherwise *inconclusive*. |
+
+A **barren hole tests only its own line**: ore bodies are narrow and holes miss them. It is evidence about that spot, not proof the ground is empty. The decision table says so, and tells you which targets are already drilled and what was found, within `drill.near_m` of a placed hole (500 m by default).
+
+**In the model.** `target.drill_labels` has three settings:
+
+| Setting | Effect |
+|---|---|
+| `evaluate` (default) | The model is unchanged. Cross-validation also reports `AUC against known-barren drill cells`: how well held-out occurrences rank above holes that found nothing. This is the only comparison against real negatives, which the other data cannot give. |
+| `train` | Barren-hole cells also join every bag as negatives, and mineralized holes add positives (not for industrial-mineral or REE models). **Not validated on real digitized data**, because none existed when this was written: try it and compare the new AUC before trusting it. |
+| `off` | Drilling is ignored. |
+
+Fewer than `target.min_drill_negatives` (5) barren cells are not used at all, and a cell holding both a barren and a mineralized hole, or a known occurrence, counts as mineralized.
+
 ---
 
 ## Drilling indicator on BC leads
@@ -423,6 +453,9 @@ The *Notices* section lists the ones that apply to your project automatically.
 | Manual georeference | `gossan ingest-points <project> <aris> <page> <file.points>` |
 | Pitch pack PDF | `gossan report <project>` |
 | Pitch pack for one lead | `gossan report <project> --lead <tenure_number>` |
+| Reports to digitize first | `gossan analyze <project> --steps priorities` |
+| Download ARIS PDFs in priority order | `gossan harvest <project> --limit-pdfs N --pdf-order priority` |
+| Drill holes placed and classified | `gossan analyze <project> --steps drilling` |
 | Tenure watch (changes and watchlist) | `gossan analyze <project> --steps tenure` |
 | Whole job: harvest, model, analyze, report | `gossan run <project> [--aoi <file>] [--class metallic]` |
 | Analysis report (PDF and Word) | `gossan report <project> --kind analysis` |

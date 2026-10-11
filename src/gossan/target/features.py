@@ -92,6 +92,7 @@ from scipy.ndimage import (
 from scipy.spatial import cKDTree
 
 from gossan.analyze.common import AnalysisError
+from gossan.analyze.drill_results import classify_holes
 from gossan.analyze.geochem import score_project
 from gossan.analyze.occurrences import commodity_class
 from gossan.core.config import TargetConfig
@@ -137,6 +138,13 @@ class FeatureStack:
     units: np.ndarray | None = None
     #: Datasets behind the geochemistry features (rgs, plus dem and bedrock_geology for catchments).
     geochem_inputs: list[str] = field(default_factory=list)
+    #: Cells holding a barren drill hole (never an occurrence): the cross-validation's real negatives.
+    barren_cells: np.ndarray | None = None
+    #: The same cells when they also train the model as negatives (``drill_labels: train``).
+    negatives: np.ndarray | None = None
+    #: How many cells mineralized drill holes added to the positives (``drill_labels: train``).
+    n_drill_positives_added: int = 0
+    drill_note: str = ""
 
     @property
     def model_names(self) -> list[str]:
@@ -489,6 +497,33 @@ def _rasters(project: Project, grid: Grid) -> dict[str, tuple[np.ndarray | None,
     return out
 
 
+def _drill_cells(project: Project, grid: Grid, cfg: TargetConfig, positives: np.ndarray) -> tuple[np.ndarray, np.ndarray, str]:
+    """(cells of mineralized drill holes, cells of barren drill holes, a note) from the digitized
+    drill tables; only holes placed by their own collar coordinates count. Barren cells never include
+    a known occurrence or a mineralized hole: where evidence conflicts, mineralization wins."""
+    none = np.empty(0, dtype=int)
+    if cfg.drill_labels == "off":
+        return none, none, ""
+    classified = classify_holes(project)
+    if classified is None:
+        return none, none, "no approved drill tables"
+    holes = classified.holes
+    placed = holes[(holes["location_quality"] == "collar_coordinates") & holes.geometry.notna()]
+    if placed.empty:
+        return none, none, "no drill hole could be placed by its collar coordinates"
+    cells = grid.cell_of(placed.geometry.x.to_numpy(), placed.geometry.y.to_numpy())
+    cls = placed["class"].to_numpy()
+    mineral = np.unique(cells[(cls == "mineralized") & (cells >= 0)])
+    barren = np.setdiff1d(np.unique(cells[(cls == "barren") & (cells >= 0)]), np.union1d(positives, mineral))
+    note = ""
+    if len(barren) < cfg.min_drill_negatives:
+        note = f"only {len(barren)} cell(s) hold a barren drill hole (need {cfg.min_drill_negatives}); not used"
+        barren = none
+    if cfg.occurrence_class not in {"all", "metallic"}:
+        mineral = none  # drill grades say nothing about industrial minerals or REE deposits
+    return mineral, barren, note
+
+
 def _positives(project: Project, grid: Grid, occurrence_class: str = "all") -> tuple[np.ndarray, int, int]:
     minfile = _layer(project, "minfile")
     if minfile is None:
@@ -531,6 +566,8 @@ def input_datasets(stack: FeatureStack) -> list[str]:
         used.append("rgs" if name.startswith("rgs_") else FEATURE_DATASETS.get(name, name))
     if stack.units is not None:
         used.append("bedrock_geology")
+    if stack.barren_cells is not None or stack.n_drill_positives_added:
+        used.append("aris_pdfs")  # drill tables are digitized ARIS reports (Access Only)
     if any(n.startswith("rgs_") for n in stack.names):
         used += stack.geochem_inputs
     if stack.bias is not None:
@@ -542,6 +579,11 @@ def input_datasets(stack: FeatureStack) -> list[str]:
 def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack:
     """Build every available feature on ``grid``; skipped features are listed with reasons."""
     positives, n_total, n_outside = _positives(project, grid, cfg.occurrence_class)
+    drill_extra, barren, drill_note = _drill_cells(project, grid, cfg, positives)
+    n_drill_added = 0
+    if cfg.drill_labels == "train" and len(drill_extra):
+        n_drill_added = len(np.setdiff1d(drill_extra, positives))
+        positives = np.union1d(positives, drill_extra)
     effort = {
         "tenure_density": _tenure_density(project, grid, cfg),
         "aris_density": _aris_density(project, grid, cfg),
@@ -611,4 +653,7 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
         names, X, missing, skipped, positives, n_total, n_outside,
         bias=bias, effort_weights=effort_weights, use_label_feature=cfg.occurrence_distance,
         occurrence_class=cfg.occurrence_class, units=units, geochem_inputs=geochem_inputs,
+        barren_cells=barren if len(barren) else None,
+        negatives=barren if (cfg.drill_labels == "train" and len(barren)) else None,
+        n_drill_positives_added=n_drill_added, drill_note=drill_note,
     )  # fmt: skip

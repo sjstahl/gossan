@@ -51,12 +51,16 @@ def pu_bagging(
     unlabeled_ratio: float,
     seed: int,
     unlabeled_weights: np.ndarray | None = None,
+    negatives: np.ndarray | None = None,
 ) -> PuResult:
     """Train ``n_bags`` positive-versus-unlabeled forests and score ``score_rows``.
 
     ``y`` is 1 for known occurrences and 0 for unlabeled cells, for every row of ``X``.
     Bags are drawn from ``train_rows``. A scored row that is also a training row is scored only
     by bags whose sample left it out; rows outside ``train_rows`` are scored by every bag.
+    ``negatives`` (rows of ``X``) are known-barren cells, such as drill holes that found nothing:
+    those inside ``train_rows`` join every bag as label 0 on top of the random unlabeled draw, and
+    are not drawn as unlabeled. Being in every bag they are scored by all the forests afterwards.
     ``unlabeled_weights`` (one non-negative value per row of ``X``) makes the unlabeled draw
     proportional to it (target-group background: weight by exploration effort); None draws
     uniformly.
@@ -65,6 +69,9 @@ def pu_bagging(
     rng = np.random.default_rng(seed)
     pos = train_rows[y[train_rows] == 1]
     unl = train_rows[y[train_rows] == 0]
+    neg = np.intersect1d(negatives, train_rows) if negatives is not None else np.empty(0, dtype=int)
+    if len(neg):
+        unl = np.setdiff1d(unl, neg)
     if len(pos) < 2:
         raise ValueError("need at least two positive cells to train")
     if len(unl) == 0:
@@ -86,8 +93,8 @@ def pu_bagging(
     for b in range(n_bags):
         sample_pos = rng.choice(pos, size=n_pos_bag, replace=False)
         sample_unl = rng.choice(unl, size=n_unl_bag, replace=False, p=p_unl)
-        rows = np.concatenate([sample_pos, sample_unl])
-        labels = np.concatenate([np.ones(len(sample_pos)), np.zeros(len(sample_unl))])
+        rows = np.concatenate([sample_pos, sample_unl, neg])
+        labels = np.concatenate([np.ones(len(sample_pos)), np.zeros(len(sample_unl) + len(neg))])
         forest = RandomForestClassifier(
             n_estimators=n_trees,
             min_samples_leaf=min_samples_leaf,

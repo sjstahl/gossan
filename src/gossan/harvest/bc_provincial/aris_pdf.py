@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 import pyogrio
 
 from gossan.core.project import Project
@@ -64,10 +65,14 @@ class ArisPdfDownloader:
         self.pause = PAUSE_SECONDS if pause is None else pause
         self.raw = project.raw_dir / RAW_DIR
 
-    def run(self, limit: int) -> PdfResult:
+    def run(self, limit: int, order: str = "newest") -> PdfResult:
         if limit < 1:
             raise ValueError("limit must be at least 1")
+        if order not in {"newest", "priority"}:
+            raise ValueError("order must be newest or priority")
         reports = self._reports()
+        if order == "priority":
+            reports = self._by_priority(reports)
         self.raw.mkdir(parents=True, exist_ok=True)
         result = PdfResult([], 0, [], 0)
         todo = []
@@ -104,6 +109,19 @@ class ArisPdfDownloader:
         for url, number in zip(gdf["ARIS_REPORT_URL"], gdf["ARIS_NUMBER"], strict=True):
             out.append((str(int(number)), pdf_url(url)))
         return out
+
+    def _by_priority(self, reports: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Reports ranked by ``analysis/digitize_priorities.csv`` first (best first), the rest after in
+        their newest-first order."""
+        path = self.project.root / "analysis" / "digitize_priorities.csv"
+        if not path.exists():
+            raise FileNotFoundError("no analysis/digitize_priorities.csv; run 'gossan analyze --steps priorities' first")
+        ranked = pd.read_csv(path)
+        ranked = ranked[ranked["priority"].notna()].sort_values("priority")
+        first = [str(int(n)) for n in ranked["aris_number"]]
+        by_number = dict(reports)
+        head = [(n, by_number[n]) for n in first if n in by_number]
+        return head + [r for r in reports if r[0] not in set(first)]
 
     def _dest(self, number: str) -> Path:
         return self.raw / f"ARIS_{int(number):05d}.pdf"

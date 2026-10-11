@@ -23,6 +23,7 @@ from gossan.core.project import Project
 from gossan.report.analysis_figures import (
     analysis_layer,
     catchment_map,
+    drill_map,
     enrichment_chart,
     fault_chart,
     geology_map,
@@ -147,6 +148,9 @@ class Loaded:
     tenure: dict | None = None
     tenure_events: pd.DataFrame | None = None
     tenure_watch: pd.DataFrame | None = None
+    drill: dict | None = None
+    priorities: pd.DataFrame | None = None
+    priorities_summary: dict | None = None
 
 
 def load(project: Project) -> Loaded:
@@ -181,6 +185,9 @@ def load(project: Project) -> Loaded:
         _json(a / "tenure_summary.json"),
         read_csv(project, "tenure_changes"),
         read_csv(project, "tenure_watch"),
+        _json(a / "drill_summary.json"),
+        read_csv(project, "digitize_priorities"),
+        _json(a / "digitize_priorities_summary.json"),
     )
 
 
@@ -233,6 +240,13 @@ def _findings(project: Project, L: Loaded) -> list[str]:
         out.append(
             f"Tenure: {wc['expiring']} of {t['n_tenures']} tenures reach their good-to date within 180 days and {wc['recent_staking']} were staked in the last year"
             + (f"; {t['n_events']} change(s) between {t['n_snapshots']} saved snapshots." if t["n_snapshots"] >= 2 else "; only one snapshot is saved, so changes cannot be compared yet.")
+        )
+    dr = L.drill
+    if dr and dr.get("available"):
+        c = dr["by_class"]
+        out.append(
+            f"Drilling: {dr['n_holes']} digitized hole(s) from {dr['n_reports']} report(s): {c['mineralized']} mineralized, {c['barren']} barren, "
+            f"{c['inconclusive'] + c['no_assays']} inconclusive or without usable assays."
         )
     d = L.decisions_summary
     if d:
@@ -533,6 +547,64 @@ def _sec_tenure(project: Project, L: Loaded, assets: Path) -> list[Block]:
     return blocks
 
 
+def _digitize_next(L: Loaded) -> list[Block]:
+    """The drilling reports worth digitizing next (from ``gossan analyze --steps priorities``)."""
+    s, t = L.priorities_summary, L.priorities
+    if not s or not s.get("available") or t is None or not len(s["top"]):
+        return []
+    near = f"{s['n_tier1']} of the reports not yet digitized lie within {s['radius_m'] / 1000:g} km of a {s['reference']}"
+    blocks: list[Block] = [
+        Heading("Reports worth digitizing next", 2),
+        Para(f"{s['n_drilling_reports']} of the {s['n_reports']} assessment reports in the area describe drilling; {s['n_digitized']} have been digitized. {near}. "
+             "A report's location is a point on the property, not the holes, so distance is a guide to relevance rather than a measurement."),
+    ]
+    col = next((c for c in t.columns if c.startswith("distance_to_nearest_")), None)
+    rows = [["#", "ARIS", "Year", "Report", "Spend (2002 $)", "Distance (km)"]]
+    for r in t[t["priority"].notna()].head(8).itertuples():
+        dist = getattr(r, col) if col else None
+        rows.append([str(int(r.priority)), str(r.aris_number), _num(r.year, "{:.0f}"), _text(r.title)[:70], _num(r.spend_2002_dollars), _num(None if dist is None or pd.isna(dist) else dist / 1000, "{:.1f}")])
+    blocks.append(Table(rows, [0.3, 0.7, 0.6, 3.6, 1.0, 0.9], "Ranked by closeness to a target, then by reported spend. Download in this order with `gossan harvest <project> --limit-pdfs N --pdf-order priority`, then `gossan digitize` and `gossan review`."))
+    return blocks
+
+
+def _sec_drilling(project: Project, L: Loaded, assets: Path) -> list[Block]:
+    blocks: list[Block] = [Heading("Drilling evidence")]
+    d = L.drill
+    if d is None:
+        return blocks + _need("gossan analyze --steps drilling", "The drilling analysis")
+    if not d.get("available"):
+        return blocks + [Para(f"No digitized drill holes yet: {d.get('reason', '')}.")] + _digitize_next(L)
+    c, loc = d["by_class"], d["by_location"]
+    blocks.append(
+        Para(
+            f"{d['n_holes']} drill hole(s) from {d['n_reports']} assessment report(s) were digitized and approved by a reviewer. Each is graded in one unit per element and called "
+            "mineralized (an interval reaches the screening grade for any element), barren (sampled over enough metres and nowhere near any screening grade), or inconclusive. "
+            "A barren hole tests only its own line: ore bodies are narrow and holes miss them, so barren is evidence about that spot, not proof the ground is empty."
+        )
+    )
+    fig = drill_map(project, assets / "drilling.png")
+    if fig:
+        blocks.append(Figure(fig, "Figure 8. Digitized drill holes by result, with the targets. Open symbols are holes known only by their report's location.", 0.95))
+    rows = [["Result", "Holes"], *[[k.replace("_", " "), str(v)] for k, v in c.items() if v]]
+    blocks.append(Table(rows, [2.0, 0.8]))
+    blocks.append(Table(
+        [["Position known from", "Holes"], ["collar coordinates", str(loc["collar_coordinates"])], ["the report's location only", str(loc["report_location"])], ["neither (not on the map)", str(loc["unplaced"])]],
+        [2.6, 0.8], "Collar coordinates are read as UTM in the project's zone and the datum set under georef:; a collar that lands outside the area is not placed (local mine grid, wrong zone or datum?).",
+    ))
+    left = d["left_out_of_grades"]
+    if left["no_unit"] or left["unknown_unit"]:
+        blocks.append(Note(f"{left['no_unit']} assay value(s) have no unit and {left['unknown_unit']} an unknown one: they were left out of the grades rather than guessed, because a bare 'Au' column could be ppb or g/t. Add the unit to the extracted table and re-approve it.", "warn"))
+    if d["mineralized_holes"]:
+        blocks.append(Heading("Mineralized holes", 2))
+        rows = [["Hole", "Element", "Best interval grade", "Interval"]]
+        rows += [[h["hole"], h["element"], f"{h['grade']:g} {h['unit']}", h["interval"]] for h in d["mineralized_holes"]]
+        blocks.append(Table(rows, [2.6, 0.8, 1.6, 1.4], "Screening grades are far below economic grades (see drill: in project.yaml): they show that mineralization is present."))
+    if L.decisions is not None and "n_drill_holes" in L.decisions:
+        tested = L.decisions[L.decisions["n_drill_holes"].fillna(0) > 0]
+        blocks.append(Para(f"{len(tested)} of {len(L.decisions)} targets already have a digitized drill hole on or beside them; the decision table says what they found."))
+    return blocks + _digitize_next(L)
+
+
 def _sec_decisions(project: Project, L: Loaded, assets: Path) -> list[Block]:
     blocks: list[Block] = [Heading("Target decision table")]
     d = L.decisions
@@ -605,7 +677,7 @@ def _sec_sources(project: Project, notices: list[str]) -> list[Block]:
 
 
 #: Sections that start on a new page; the short ones (data, method, sources) follow on.
-NEW_PAGE = {"geology", "geochemistry", "targets", "tenure", "decisions", "method"}
+NEW_PAGE = {"geology", "geochemistry", "targets", "tenure", "decisions", "method"}  # drilling follows tenure on its page
 
 NOTICES = {
     "Open Government Licence - British Columbia": "Contains information licensed under the Open Government Licence - British Columbia.",
@@ -638,6 +710,7 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
         "geochemistry": lambda: _sec_geochem(project, L, assets),
         "targets": lambda: _sec_targets(project, L, assets),
         "tenure": lambda: _sec_tenure(project, L, assets),
+        "drilling": lambda: _sec_drilling(project, L, assets),
         "decisions": lambda: _sec_decisions(project, L, assets),
         "method": lambda: _sec_method(project, L),
         "sources": lambda: _sec_sources(project, notices),

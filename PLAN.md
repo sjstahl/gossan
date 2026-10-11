@@ -213,7 +213,7 @@ The phases above were built in order, then extended. This section is the current
 |---|---|
 | 1 Foundation, 2 BC harvest | Done and much wider: **25 BC sources** (occurrences, tenure, ARIS, NoW, RGS; bedrock geology, faults, Quaternary cover, mineral potential; MINFILE production and inventory; historic notices, mine permits, crown grants; parks, conservancies, reserves, treaty land; roads, power lines; NRCan MRDEM-30 terrain). Identical re-downloads are not stored twice (`core/rawstore.py`). |
 | 3 Leads | Done (BC and US scoring, drilling indicator). Tenure change detection now exists as an analysis step (below); leads do not use it yet. |
-| 4 Digitize | Done through review and drillhole tables. Its outputs do not yet feed the model. |
+| 4 Digitize | Done through review and drillhole tables; the tables now feed the analysis, decision table and (optionally) the model (below). Never exercised on real approved data. |
 | 5 Spectral | **Not built.** Only scene search and download (EMIT, EnMAP, ASTER) exist; `src/gossan/spectral/` is empty. |
 | 6 Targeting | Done and reworked (below). |
 | 7 Report | Pitch pack PDF, short Word report, and the new **analysis report** (PDF and Word from one content model). |
@@ -224,6 +224,7 @@ The phases above were built in order, then extended. This section is the current
 - Target model: evidence features (faults, contacts, intrusions, unit age, terrain, geochemistry, host-unit favourability) instead of exploration effort; occurrence classes; automatic CV buffer; effort-matched AUC; minimum target size and optional smoothing.
 - US jurisdiction (MRDS, BLM claims, Nevada notices).
 - Tenure change detection (`analyze/tenure.py`): the raw tenure snapshots Gossan already keeps are compared (new, gone, owner changed, transferred, work filed, cash in lieu, extended, reduced), plus a watchlist (expiring, recently staked or updated, frequently transferred) that works from one harvest; shown in the analysis report, the decision table, and QGIS-ready layers.
+- Digitize-to-target loop: approved collar/assay tables are placed, unit-converted and classified (`analyze/drill_results.py`: mineralized, barren, inconclusive); the decision table says what drilling already tested each target; `target.drill_labels` (evaluate by default) reports AUC against known-barren drill cells, and `train` also uses barren holes as negatives and mineralized holes as positives (unvalidated on real data); `analyze --steps priorities` ranks drilling reports worth digitizing and `--pdf-order priority` downloads them first.
 - `gossan run` (`src/gossan/pipeline.py`): harvest, target, analyze and report in dependency order, each step degrading on its own, with a status table and a provenance record of the run; also behind the QGIS tool's "Also analyze" option.
 - Project settings are versioned (`config_version`); opening an older `project.yaml` migrates defaults that were deliberately changed (so a project created before the CV gap became automatic does not silently keep `cv_buffer_m: 0`).
 - Provenance carries the code revision; `uv.lock` pins the tested dependency set; `scripts/backup_repo.py` writes verified git bundles; CI workflow in `.github/workflows/`.

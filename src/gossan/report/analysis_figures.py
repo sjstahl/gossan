@@ -293,6 +293,34 @@ def tenure_map(project: Project, dest: Path) -> Path | None:
     return _finish(fig, ax, dest, project.config.crs)
 
 
+def drill_map(project: Project, dest: Path) -> Path | None:
+    """Drill holes by class (mineralized, barren, other) with the targets, over the AOI. Holes known
+    only by their report's location are drawn as open symbols."""
+    holes = analysis_layer(project, "drill_holes")
+    if holes is None:
+        return None
+    fig, ax = plt.subplots(figsize=(6.5, 5.0))
+    handles = []
+    targets = layer_or_none(project.root / "target" / "targets.gpkg", "targets_top")
+    if targets is not None:
+        targets.to_crs(project.config.crs).boundary.plot(ax=ax, color=INK2, linewidth=0.8)
+        handles.append(plt.Line2D([], [], color=INK2, linewidth=1.0, label=f"Target ({len(targets)})"))
+    for cls, colour, marker in (("barren", MUTED, "o"), ("inconclusive", AQUA, "s"), ("mineralized", ORANGE, "^")):
+        for quality, filled in (("collar_coordinates", True), ("report_location", False)):
+            sel = holes[(holes["class"] == cls) & (holes["location_quality"] == quality)]
+            if len(sel):
+                sel.plot(
+                    ax=ax, marker=marker, markersize=34, zorder=5, linewidth=1.1,
+                    facecolor=colour if filled else "none", edgecolor=colour if not filled else "white",
+                )  # fmt: skip
+                label = f"{cls.title()}" + ("" if filled else ", report location")
+                handles.append(plt.Line2D([], [], marker=marker, linestyle="", markerfacecolor=colour if filled else "none", markeredgecolor=colour, label=f"{label} ({len(sel)})"))
+    project.read_aoi().boundary.plot(ax=ax, color=AOI_COLOUR, linewidth=1.3)
+    _extent(ax, project)
+    _legend(ax, handles, ncol=2)
+    return _finish(fig, ax, dest, project.config.crs)
+
+
 def table_exists(project: Project, layer: str) -> bool:
     path = project.root / ANALYSIS_GPKG
     return path.exists() and layer in {str(n) for n in pyogrio.list_layers(path)[:, 0]}

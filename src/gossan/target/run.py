@@ -86,7 +86,7 @@ def run_target(
     fit = pu_bagging(
         X, y, everything, everything,
         n_bags=cfg.n_bags, n_trees=cfg.n_trees, min_samples_leaf=cfg.min_samples_leaf,
-        unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed, unlabeled_weights=stack.bias,
+        unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed, unlabeled_weights=stack.bias, negatives=stack.negatives,
     )  # fmt: skip
 
     out = target_dir(project.root)
@@ -126,6 +126,10 @@ def run_target(
         "n_targets_dropped_small": n_dropped,
         "occurrence_class": cfg.occurrence_class,
         "effort": cfg.effort,
+        "drill_labels": cfg.drill_labels,
+        "n_barren_drill_cells": 0 if stack.barren_cells is None else len(stack.barren_cells),
+        "n_drill_positives_added": stack.n_drill_positives_added,
+        "drill_note": stack.drill_note,
         "background_weighted_by_effort": stack.bias is not None,
         "n_occurrences_in_layer": stack.n_occurrences_total,
         "n_occurrences_outside_aoi": stack.n_occurrences_outside,
@@ -162,7 +166,7 @@ def run_target(
             for k in (
                 "n_folds_scored", "auc_mean", "auc_std", "auc_effort_matched_mean", "auc_effort_matched_std",
                 "capture_top5_mean", "capture_top5_std", "capture_top5_smoothed_mean", "capture_top5_smoothed_std", "skipped",
-                "block_size_m", "buffer_m",
+                "block_size_m", "buffer_m", "auc_vs_barren_mean", "auc_vs_barren_std", "n_barren_cells",
             )
         },
         "top_percentile": cfg.top_percentile,
