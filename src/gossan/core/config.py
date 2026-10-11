@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -160,9 +161,46 @@ class TargetConfig(BaseModel):
     geochem_spatial: Literal["catchment", "idw"] = "catchment"
 
 
+#: Version of the settings layout and defaults. ``gossan new`` writes every setting, defaults
+#: included, into ``project.yaml``, so a default changed later in the code would never reach an
+#: existing project. When a change matters, bump this and add a migration below: opening an older
+#: project then updates the affected values (and says so), instead of silently keeping the old ones.
+CONFIG_VERSION = 2
+
+
+def _v1_to_v2(data: dict[str, Any]) -> list[str]:
+    """v2 made the cross-validation gap automatic. A v1 file carries the old default, 0 (no gap
+    between test blocks and training cells), which flatters the scores."""
+    notes = []
+    target = data.get("target")
+    if isinstance(target, dict) and target.get("cv_buffer_m") == 0:
+        target["cv_buffer_m"] = None
+        notes.append(
+            "target.cv_buffer_m was 0 (the old default: no gap between cross-validation test blocks and training "
+            "cells, which flatters the scores); it is now automatic. Set it back to 0 in project.yaml to keep the old behaviour."
+        )
+    return notes
+
+
+#: From version N: a function that updates the settings in place and returns what it changed.
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], list[str]]] = {1: _v1_to_v2}
+
+
+def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], list[str], int]:
+    """Bring raw ``project.yaml`` data up to ``CONFIG_VERSION``. Returns (data, notes about changed
+    values, the version it started from). A file without ``config_version`` is version 1."""
+    start = int(data.get("config_version", 1))
+    notes: list[str] = []
+    for version in range(start, CONFIG_VERSION):
+        notes += MIGRATIONS[version](data)
+    data["config_version"] = CONFIG_VERSION
+    return data, notes, start
+
+
 class ProjectConfig(BaseModel):
     """Contents of a project's ``project.yaml``."""
 
+    config_version: int = CONFIG_VERSION
     name: str = Field(min_length=1)
     client: str | None = None
     crs: str = Field(description="Project CRS, e.g. 'EPSG:32610'.")
@@ -195,6 +233,13 @@ class ProjectConfig(BaseModel):
 
     @classmethod
     def load(cls, project_dir: Path) -> ProjectConfig:
-        """Read and validate ``project.yaml`` from ``project_dir``."""
+        """Read and validate ``project.yaml`` from ``project_dir`` (migrated in memory if old)."""
+        return cls.read(project_dir)[0]
+
+    @classmethod
+    def read(cls, project_dir: Path) -> tuple[ProjectConfig, list[str], int]:
+        """Like ``load``, but also returns what migration changed and the file's original version
+        (equal to ``CONFIG_VERSION`` when nothing was migrated). Does not write anything."""
         data = yaml.safe_load((project_dir / PROJECT_FILE).read_text(encoding="utf-8"))
-        return cls.model_validate(data)
+        data, notes, start = migrate(data)
+        return cls.model_validate(data), notes, start

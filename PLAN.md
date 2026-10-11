@@ -223,6 +223,8 @@ The phases above were built in order, then extended. This section is the current
 - `gossan analyze` (`src/gossan/analyze/`): data inventory; RGS geochemistry (element quality tiers with below-detection handling, Fe-Mn correction, pathfinder indices, compositional PCA, robust multivariate anomalies); DEM stream catchments (own D8 routing, no GPL hydrology dependency); known occurrences against bedrock units and faults; per-target decision table (ground status, tenure, exclusions, access, history).
 - Target model: evidence features (faults, contacts, intrusions, unit age, terrain, geochemistry, host-unit favourability) instead of exploration effort; occurrence classes; automatic CV buffer; effort-matched AUC; minimum target size and optional smoothing.
 - US jurisdiction (MRDS, BLM claims, Nevada notices).
+- `gossan run` (`src/gossan/pipeline.py`): harvest, target, analyze and report in dependency order, each step degrading on its own, with a status table and a provenance record of the run; also behind the QGIS tool's "Also analyze" option.
+- Project settings are versioned (`config_version`); opening an older `project.yaml` migrates defaults that were deliberately changed (so a project created before the CV gap became automatic does not silently keep `cv_buffer_m: 0`).
 - Provenance carries the code revision; `uv.lock` pins the tested dependency set; `scripts/backup_repo.py` writes verified git bundles; CI workflow in `.github/workflows/`.
 
 **Findings that shaped the defaults (East Kootenay test area, 23 metallic occurrences; treat as indicative):**

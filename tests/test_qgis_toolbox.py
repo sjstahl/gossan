@@ -129,6 +129,8 @@ def build_fake_qgis():
 
     namespace = {
         "Qgis": types.SimpleNamespace(),  # no RasterBandStatistic: exercises the older-QGIS fallback
+        "QgsCategorizedSymbolRenderer": type("QgsCategorizedSymbolRenderer", (Recorder,), {}),
+        "QgsRendererCategory": type("QgsRendererCategory", (Recorder,), {}),
         "QgsColorRampShader": QgsColorRampShader,
         "QgsFillSymbol": QgsFillSymbol,
         "QgsProcessing": QgsProcessing,
@@ -250,7 +252,8 @@ def test_defines_one_algorithm_with_the_requested_parameters(toolbox):
     alg = toolbox.GossanTargetingAlgorithm()
     alg.initAlgorithm()
     by_name = {p.name(): p for p in alg.params}
-    assert list(by_name) == ["INPUT", "PROJECT_NAME", "BASE_DIR", "GOSSAN", "RESOLUTION", "REUSE"]
+    assert list(by_name) == ["INPUT", "PROJECT_NAME", "BASE_DIR", "GOSSAN", "RESOLUTION", "REUSE", "ANALYZE"]
+    assert by_name["ANALYZE"].kwargs["defaultValue"] is True  # analysing and reporting is the default
     assert type(by_name["INPUT"]).__name__ == "QgsProcessingParameterFeatureSource" and by_name["INPUT"].args[2] == ["polygon"]  # polygon layers only
     assert type(by_name["PROJECT_NAME"]).__name__ == "QgsProcessingParameterString"
     assert by_name["BASE_DIR"].kwargs["behavior"] == "folder"
@@ -518,6 +521,13 @@ def test_runs_in_a_real_qgis_with_a_stand_in_for_the_cli(tmp_path):
     gpd.GeoDataFrame({"rank": [1, 2, 3]}, geometry=[box(691000, 5618000, 691400, 5618400), box(692000, 5618500, 692300, 5618800), box(693000, 5617200, 693200, 5617400)], crs=crs).to_file(
         prepared / "targets.gpkg", layer="targets_top", driver="GPKG"
     )
+    gpd.GeoDataFrame({"sample": [0, 1]}, geometry=[box(690500, 5617500, 692000, 5619000), box(692000, 5617500, 693500, 5619000)], crs=crs).to_file(
+        prepared / "analysis.gpkg", layer="rgs_catchments", driver="GPKG"
+    )
+    gpd.GeoDataFrame(
+        {"rank": [1, 2, 3], "ground_status": ["open", "held", "excluded"]},
+        geometry=[box(691000, 5618000, 691400, 5618400), box(692000, 5618500, 692300, 5618800), box(693000, 5617200, 693200, 5617400)], crs=crs,
+    ).to_file(prepared / "analysis.gpkg", layer="target_decisions", driver="GPKG")
     fake = tmp_path / "fake_gossan.bat"
     bs = chr(92)  # a backslash, spelled out so no escape sequence can turn it into a tab or newline
     out = f'"%2{bs}target{bs}"'
@@ -532,6 +542,10 @@ def test_runs_in_a_real_qgis_with_a_stand_in_for_the_cli(tmp_path):
                     f'if "%1"=="target" ( mkdir "%2{bs}target" & copy /y "{prepared}{bs}prospectivity.tif" {out} >nul & '
                     f'copy /y "{prepared}{bs}targets.gpkg" {out} >nul & echo Targets: 3 & exit /b 0 )'
                 ),
+                (
+                    f'if "%1"=="run" ( mkdir "%2{bs}analysis" & copy /y "{prepared}{bs}analysis.gpkg" "%2{bs}analysis{bs}" >nul & '
+                    "echo analyze: ok & exit /b 0 )"
+                ),
                 "exit /b 2",
                 "",
             ]
@@ -541,7 +555,7 @@ def test_runs_in_a_real_qgis_with_a_stand_in_for_the_cli(tmp_path):
     base.mkdir()
     harness = Path(__file__).parent / "qgis_harness.py"
     proc = subprocess.run(
-        [str(find_python_qgis()), str(harness), str(SCRIPT), str(aoi_path), str(base), str(fake)],
+        [str(find_python_qgis()), str(harness), str(SCRIPT), str(aoi_path), str(base), str(fake), "analyze"],
         capture_output=True, text=True, timeout=600, errors="replace", check=False,
     )  # fmt: skip
     line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT:")), None)
@@ -551,10 +565,76 @@ def test_runs_in_a_real_qgis_with_a_stand_in_for_the_cli(tmp_path):
     assert result["check"] == [True, ""] and result["errors"] == []
     assert Path(result["results"]["PROJECT_DIR"]) == base / "qgis_demo"
     layers = {layer["name"]: layer for layer in result["layers"]}
-    assert list(layers) == ["Gossan targets (top percentile)", "Gossan prospectivity"], result  # the layer tree lists the newest on top
+    assert list(layers) == [
+        "Gossan targets by ground status", "Gossan stream-sediment catchments",
+        "Gossan targets (top percentile)", "Gossan prospectivity",
+    ], result  # the layer tree lists the newest on top
     raster, targets = layers["Gossan prospectivity"], layers["Gossan targets (top percentile)"]
     assert raster["valid"] and raster["type"] == "QgsRasterLayer" and raster["crs"] == "EPSG:32610"
     assert raster["renderer"] == "singlebandpseudocolor" and raster["bands"] == 1
     assert raster["ramp"][0] == pytest.approx(0.1, abs=0.01) and raster["ramp"][-1] == pytest.approx(0.9, abs=0.01)
     assert raster["colours"] == ["#440154", "#3b528b", "#21918c", "#5ec962", "#fde725"]
     assert targets["valid"] and targets["features"] == 3 and targets["renderer"] == "singleSymbol" and targets["outline"] == "#ffffff"
+    catchments, decisions = layers["Gossan stream-sediment catchments"], layers["Gossan targets by ground status"]
+    assert catchments["valid"] and catchments["features"] == 2 and catchments["renderer"] == "singleSymbol" and catchments["outline"] == "#898781"
+    assert decisions["valid"] and decisions["features"] == 3 and decisions["renderer"] == "categorizedSymbol"
+    assert decisions["attribute"] == "ground_status"
+    assert decisions["categories"] == [["open", "#2a78d6"], ["partly held", "#1baf7a"], ["held", "#eb6834"], ["excluded", "#52514e"]]
+
+
+# --- analysing and reporting from QGIS ---------------------------------------------------------
+
+
+def test_analyze_runs_gossan_run_for_analyze_and_report_after_the_model(toolbox, cli, tmp_path):
+    params = make_params(tmp_path, ANALYZE=True)
+    alg, feedback, _ = run_algorithm(toolbox, params)
+    exe = params["GOSSAN"]
+    assert [a[1] for a, _ in cli.launches] == ["new", "harvest", "target", "run"]
+    assert cli.launches[3][0] == [exe, "run", "demo", "--steps", "analyze,report"]
+    assert feedback.progress == sorted(feedback.progress) and feedback.progress[-1] == 99
+    assert alg._to_load["analysis"].endswith("analysis.gpkg") and "analysis" in alg._to_load["analysis"]
+    assert not feedback.errors
+
+
+def test_a_problem_in_the_analysis_is_reported_and_the_model_results_are_still_loaded(toolbox, cli, tmp_path):
+    cli.scripted["run"] = (["analyze: skipped: no rgs layer", "report: ok"], 1)  # exit 1 = partial
+    alg, feedback, result = run_algorithm(toolbox, make_params(tmp_path, ANALYZE=True))
+    assert any("analysis or the report reported a problem" in text and fatal is False for text, fatal in feedback.errors)
+    assert "PROJECT_DIR" in result and "prospectivity" in alg._to_load
+
+
+def test_without_analyze_the_commands_are_unchanged(toolbox, cli, tmp_path):
+    alg, _, _ = run_algorithm(toolbox, make_params(tmp_path, ANALYZE=False))
+    assert [a[1] for a, _ in cli.launches] == ["new", "harvest", "target"] and "analysis" not in alg._to_load
+
+
+def test_analysis_layers_are_added_catchments_below_the_status_coloured_targets(toolbox, tmp_path):
+    alg = finished(toolbox, tmp_path)
+    gpkg = tmp_path / "base" / "demo" / "analysis" / "analysis.gpkg"
+    gpkg.parent.mkdir(parents=True)
+    gpkg.write_bytes(b"x")
+    alg._to_load["analysis"] = str(gpkg)
+    alg.postProcessAlgorithm(None, FakeFeedback())
+    layers = toolbox.fake_project.instance().layers
+    assert [layer.layer_name for layer in layers] == [
+        "Gossan prospectivity", "Gossan targets (top percentile)",
+        "Gossan stream-sediment catchments", "Gossan targets by ground status",
+    ]  # fmt: skip
+    assert layers[2].source.endswith("analysis.gpkg|layername=rgs_catchments")
+    decisions = layers[3]
+    assert decisions.source.endswith("analysis.gpkg|layername=target_decisions")
+    renderer = decisions.renderer_set
+    assert type(renderer).__name__ == "QgsCategorizedSymbolRenderer" and renderer.args[0] == "ground_status"
+    assert [c.args[0] for c in renderer.args[1]] == ["open", "partly held", "held", "excluded"]
+
+
+def test_a_missing_analysis_layer_is_skipped_with_a_note(toolbox, tmp_path):
+    alg = finished(toolbox, tmp_path)
+    gpkg = tmp_path / "base" / "demo" / "analysis" / "invalid.gpkg"  # the fake treats 'invalid' as unreadable
+    gpkg.parent.mkdir(parents=True)
+    gpkg.write_bytes(b"x")
+    alg._to_load["analysis"] = str(gpkg)
+    feedback = FakeFeedback()
+    alg.postProcessAlgorithm(None, feedback)
+    assert [layer.layer_name for layer in toolbox.fake_project.instance().layers] == ["Gossan prospectivity", "Gossan targets (top percentile)"]
+    assert sum("not added" in text for text in feedback.info) == 2

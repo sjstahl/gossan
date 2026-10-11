@@ -89,6 +89,7 @@ Any CRS is fine; Gossan reprojects to UTM. The layer **must** have a CRS defined
 | **Gossan executable** | Path to `gossan.exe` in the Gossan environment. Leave blank if `GOSSAN_EXECUTABLE` is set or `gossan` is on `PATH`. | `C:\gossan\venv\Scripts\gossan.exe` |
 | **Grid resolution (metres)** | Model cell size. Coarser is faster. See the table in section 1. | `100` |
 | **Reuse the project folder if it already exists** | Tick to re-run harvest and target in an existing project. **The AOI layer is then ignored.** Leave unticked for a new project. | unticked |
+| **Also analyze the data and build the analysis report (PDF and Word)** | After the model, runs `gossan run --steps analyze,report`: geochemistry with stream catchments, occurrences against geology, a decision table for each target, and `outputs/analysis_report.pdf` and `.docx`. Adds the catchments and the targets coloured by ground status to QGIS. | ticked |
 
 The tool checks the inputs before it starts. It refuses to run if the name is invalid, the base directory does not exist, the project folder already exists (and *Reuse* is unticked), or Gossan cannot be found.
 
@@ -113,6 +114,8 @@ The tool checks the inputs before it starts. It refuses to run if the name is in
    Features (<n>): ...
    Spatial CV (5 fold(s)): AUC <x> +/- <y>, top-5% capture <x>% +/- <y>% (random: 5%)
    Targets: <n> polygon(s) at or above the 95th percentile (score <x>)
+   --- gossan run (analyze, report) ---
+   #### analyze ... #### report ... #### summary
    ```
 
 3. Expect the harvest to take **several minutes**. The progress bar moves to about 60% when it finishes.
@@ -120,6 +123,7 @@ The tool checks the inputs before it starts. It refuses to run if the name is in
 What to know while it runs:
 
 - **A harvest source fails:** the tool reports it in red and **continues** with what was downloaded. `gossan target` then stops with a clear message only if the missing data matters.
+- **The analysis or report has a problem:** reported in red; the model results and whatever the analysis produced are still loaded. The summary table printed at the end of `gossan run` says which step was partial or skipped and why.
 - **Cancel** stops the running Gossan command immediately.
 - **A layer listed as `skipped`** under *Features* means that input was missing or too sparse in your AOI. The model is built from the rest.
 

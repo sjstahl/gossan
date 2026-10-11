@@ -259,7 +259,13 @@ A section without its data says which command produces it. If items are still pe
 The pitch pack is about leads and digitized material. For a desktop study of a BC area, `gossan report --kind analysis` writes a separate report from what `gossan analyze` and `gossan target` produced.
 
 ```bash
-gossan harvest skeena_2026          # pulls geology, faults, land status, roads, terrain, ...
+gossan run skeena_2026 --class metallic      # all four steps, in order
+```
+
+`gossan run` is harvest (geology, faults, land status, roads, terrain, ...), then `target`, then `analyze`, then this report. The steps depend on each other in that order, which is why one command is safer than four. A step that cannot run does not stop the others; a table at the end lists each step as `ok`, `partial`, `skipped` (with the reason, for example too few known occurrences for a model) or `failed`, and the exit status is 0 only if every step was `ok`. To start from an AOI file: `gossan run skeena_2026 --aoi claims.gpkg`. To redo only the later steps from data you already have (offline): `gossan run skeena_2026 --steps target,analyze,report`. Or run the steps yourself:
+
+```bash
+gossan harvest skeena_2026
 gossan target skeena_2026 --class metallic
 gossan analyze skeena_2026
 gossan report skeena_2026 --kind analysis
@@ -392,6 +398,7 @@ The *Notices* section lists the ones that apply to your project automatically.
 | Manual georeference | `gossan ingest-points <project> <aris> <page> <file.points>` |
 | Pitch pack PDF | `gossan report <project>` |
 | Pitch pack for one lead | `gossan report <project> --lead <tenure_number>` |
+| Whole job: harvest, model, analyze, report | `gossan run <project> [--aoi <file>] [--class metallic]` |
 | Analysis report (PDF and Word) | `gossan report <project> --kind analysis` |
 
 Every command has full help: `gossan <command> --help`.

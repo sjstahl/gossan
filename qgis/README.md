@@ -1,6 +1,6 @@
 # Gossan in the QGIS Processing Toolbox
 
-`gossan_toolbox.py` adds one algorithm, **Gossan > Gossan: harvest and target**. Give it an area of
+`gossan_toolbox.py` adds one algorithm, **Gossan > Gossan: harvest and target** (it also analyzes and builds the report when *Also analyze* is ticked, the default). Give it an area of
 interest and it runs `gossan new`, `gossan harvest` and `gossan target`, then loads the
 prospectivity raster and the top-percentile target polygons into your QGIS project.
 

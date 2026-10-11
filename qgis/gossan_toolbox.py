@@ -28,6 +28,7 @@ from pathlib import Path
 
 from qgis.core import (
     Qgis,
+    QgsCategorizedSymbolRenderer,
     QgsColorRampShader,
     QgsFillSymbol,
     QgsProcessing,
@@ -43,6 +44,7 @@ from qgis.core import (
     QgsRasterBandStats,
     QgsRasterLayer,
     QgsRasterShader,
+    QgsRendererCategory,
     QgsSingleBandPseudoColorRenderer,
     QgsSingleSymbolRenderer,
     QgsVectorLayer,
@@ -63,6 +65,17 @@ QGIS_PATH_MARKERS = ("qgis", "osgeo4w")
 #: Pseudocolour ramp for the prospectivity raster (viridis, low to high).
 RAMP = ("#440154", "#3b528b", "#21918c", "#5ec962", "#fde725")
 TARGETS_LAYER = "targets_top"
+#: Layers of ``analysis/analysis.gpkg`` that ``gossan run --steps analyze`` writes.
+ANALYSIS_GPKG = "analysis/analysis.gpkg"
+DECISIONS_LAYER = "target_decisions"
+CATCHMENTS_LAYER = "rgs_catchments"
+#: Ground status colours (RGBA), the same hues as the analysis report's ground map.
+GROUND_COLOURS = {
+    "open": "42,120,214,200",
+    "partly held": "27,175,122,200",
+    "held": "235,104,52,200",
+    "excluded": "82,81,78,200",
+}
 PROJECT_NAME_FORBIDDEN = '/\\:*?"<>|'
 
 
@@ -165,6 +178,7 @@ class GossanTargetingAlgorithm(QgsProcessingAlgorithm):
     GOSSAN = "GOSSAN"
     RESOLUTION = "RESOLUTION"
     REUSE = "REUSE"
+    ANALYZE = "ANALYZE"
     PROJECT_DIR = "PROJECT_DIR"
 
     def __init__(self) -> None:
@@ -190,7 +204,11 @@ class GossanTargetingAlgorithm(QgsProcessingAlgorithm):
         return tr(
             "Runs Gossan on an area of interest: creates a project folder, downloads public BC data "
             "(MINFILE, tenure, ARIS index, RGS), builds a prospectivity model, and loads the "
-            "prospectivity raster and the top-percentile target polygons into QGIS.\n\n"
+            "prospectivity raster and the top-percentile target polygons into QGIS. With 'Also analyze', it "
+            "then runs the analysis (geochemistry with stream catchments, occurrences against geology, a "
+            "decision table for each target) and writes the analysis report as PDF and Word into the "
+            "project's outputs folder; the stream catchments and the targets coloured by ground status "
+            "(open, partly held, held, excluded) are added to QGIS too.\n\n"
             "Gossan runs as separate command-line processes in its own Python environment: point "
             "'Gossan executable' at gossan (or gossan.exe) from that environment, or set GOSSAN_EXECUTABLE. "
             "The area must hold at least 10 known MINFILE occurrences. Harvesting needs internet "
@@ -217,6 +235,9 @@ class GossanTargetingAlgorithm(QgsProcessingAlgorithm):
                                          defaultValue=100.0, minValue=1.0)
         )  # fmt: skip
         self.addParameter(QgsProcessingParameterBoolean(self.REUSE, tr("Reuse the project folder if it already exists (the AOI layer is then ignored)"), defaultValue=False))
+        self.addParameter(
+            QgsProcessingParameterBoolean(self.ANALYZE, tr("Also analyze the data and build the analysis report (PDF and Word)"), defaultValue=True)
+        )
         self.addOutput(QgsProcessingOutputFolder(self.PROJECT_DIR, tr("Gossan project folder")))
 
     def checkParameterValues(self, parameters, context):
@@ -277,6 +298,14 @@ class GossanTargetingAlgorithm(QgsProcessingAlgorithm):
             "prospectivity": str(target / "prospectivity.tif"),
             "targets": str(target / "targets.gpkg"),
         }
+        if self.parameterAsBool(parameters, self.ANALYZE, context):
+            # The analysis steps and the report each degrade on their own (the command's exit status 1
+            # means "something was partial or skipped"), so a problem here is reported, not fatal.
+            code = self._run(exe, ["run", name, "--steps", "analyze,report"], cwd, feedback, "gossan run (analyze, report)", fatal=False)
+            if code != 0:
+                feedback.reportError(tr("The analysis or the report reported a problem (see the log above); the results that were produced are loaded."), False)
+            self._to_load["analysis"] = str(project_dir / ANALYSIS_GPKG)
+            feedback.setProgress(99)
         return {self.PROJECT_DIR: str(project_dir)}
 
     def _run(self, exe: str, args: list[str], cwd: str, feedback, label: str, fatal: bool = True) -> int:
@@ -308,6 +337,18 @@ class GossanTargetingAlgorithm(QgsProcessingAlgorithm):
                 feedback.reportError(tr(f"Could not open {targets_path}."), False)
         else:
             feedback.pushInfo(tr("No target polygons were produced, so no targets layer was added."))
+        analysis_path = self._to_load.get("analysis")
+        if analysis_path and Path(analysis_path).is_file():
+            for layer_name, title, renderer in (
+                (CATCHMENTS_LAYER, "Gossan stream-sediment catchments", catchment_renderer),
+                (DECISIONS_LAYER, "Gossan targets by ground status", ground_status_renderer),
+            ):
+                layer = QgsVectorLayer(f"{analysis_path}|layername={layer_name}", title, "ogr")
+                if layer.isValid():
+                    layer.setRenderer(renderer())
+                    project.addMapLayer(layer)
+                else:  # the layer is absent when its analysis step had nothing to work from
+                    feedback.pushInfo(tr(f"No '{layer_name}' layer in the analysis results; not added."))
         return {}
 
 
@@ -331,6 +372,25 @@ def apply_pseudocolor(layer: QgsRasterLayer) -> None:
     shader.setRasterShaderFunction(ramp)
     layer.setRenderer(QgsSingleBandPseudoColorRenderer(provider, 1, shader))
     layer.triggerRepaint()
+
+
+def catchment_renderer() -> QgsSingleSymbolRenderer:
+    """Hollow polygons with a thin grey outline: catchment boundaries over the other layers."""
+    symbol = QgsFillSymbol.createSimple({"color": "0,0,0,0", "outline_color": "137,135,129,255", "outline_width": "0.2"})
+    return QgsSingleSymbolRenderer(symbol)
+
+
+def ground_status_renderer() -> QgsCategorizedSymbolRenderer:
+    """Target polygons coloured by ``ground_status`` (open, partly held, held, excluded)."""
+    categories = [
+        QgsRendererCategory(
+            status,
+            QgsFillSymbol.createSimple({"color": colour, "outline_color": "255,255,255,255", "outline_width": "0.5"}),
+            status,
+        )
+        for status, colour in GROUND_COLOURS.items()
+    ]
+    return QgsCategorizedSymbolRenderer("ground_status", categories)
 
 
 def outline_renderer() -> QgsSingleSymbolRenderer:

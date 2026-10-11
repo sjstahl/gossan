@@ -14,7 +14,6 @@ from pydantic import ValidationError
 from typer.core import TyperGroup
 
 from gossan.analyze import STEPS as ANALYSIS_STEPS
-from gossan.analyze import AnalysisError
 from gossan.core.aoi import (
     detect_jurisdiction,
     read_aoi,
@@ -22,7 +21,7 @@ from gossan.core.aoi import (
     utm_zones_spanned,
     write_aoi,
 )
-from gossan.core.config import AOI_FILE, ProjectConfig, TargetConfig
+from gossan.core.config import AOI_FILE, CONFIG_VERSION, ProjectConfig, TargetConfig
 from gossan.core.ingest import IngestError
 from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
@@ -52,20 +51,100 @@ from gossan.digitize.tables import extract_digital_tables
 from gossan.digitize.text import extract_text, page_ranges
 from gossan.harvest import CONNECTORS, default_sources
 from gossan.harvest.bc_provincial.aris_pdf import ArisPdfDownloader
-from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
-from gossan.harvest.satellite.stac import SatelliteAuthError
 from gossan.leads.generator import run_leads
 from gossan.leads.pack import LeadNotFoundError, build_pack
 from gossan.leads.scoring import MissingLayerError
+from gossan.pipeline import (
+    STEPS as PIPELINE_STEPS,
+)
+from gossan.pipeline import (
+    Reporter,
+    all_ok,
+    harvest_sources,
+    parse_names,
+    project_exists,
+    run_analysis_steps,
+    run_pipeline,
+    summary_lines,
+)
 from gossan.report.analysis_render import build_analysis_report
 from gossan.report.builder import build_report
 from gossan.report.pdf import ReportError, build_pdf
-from gossan.target.run import TargetError, run_target
+from gossan.target.run import TargetError, TargetResult, run_target
 
 app = typer.Typer(
     help="Gossan: turn a claim polygon into client-ready deliverables.",
     no_args_is_help=True,
 )
+
+
+@app.command("run")
+def run_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder. With --aoi and no such folder, it is created first.")],
+    aoi: Annotated[
+        Path | None,
+        typer.Option("--aoi", exists=True, dir_okay=False, readable=True, help="AOI file; creates the project (as 'gossan new') if the folder does not exist."),
+    ] = None,
+    client: Annotated[str | None, typer.Option(help="Client name to record when creating the project.")] = None,
+    steps: Annotated[
+        str | None,
+        typer.Option(help=f"Comma-separated steps to run, always in this order: {', '.join(PIPELINE_STEPS)}. Default: all."),
+    ] = None,
+    sources: Annotated[
+        str | None,
+        typer.Option(help="Harvest only these sources (see 'gossan harvest --help'). Default: the project's jurisdiction defaults."),
+    ] = None,
+    occurrence_class: Annotated[
+        str | None,
+        typer.Option("--class", help="Positives for the model: all, metallic, industrial or specialty. Default: target.occurrence_class."),
+    ] = None,
+    resolution: Annotated[float | None, typer.Option("--resolution", min=0.001, help="Model grid cell size in metres.")] = None,
+    cv: Annotated[bool, typer.Option("--cv/--no-cv", help="Run spatial cross-validation (slower).")] = True,
+    fmt: Annotated[str, typer.Option("--format", help="Report files: pdf, docx or both.")] = "both",
+) -> None:
+    """Run the whole job: harvest, prospectivity model, analysis, analysis report.
+
+    The steps depend on each other (the model needs the harvested layers, the decision table needs
+    the model's targets, the report quotes all of it), so this runs them in that order. A step that
+    cannot run does not stop the rest; the table printed at the end says what each did. Exit
+    status 0 means every requested step completed; 1 means at least one was partial, skipped
+    (for example too few known occurrences for a model) or failed.
+
+    Examples: 'gossan run skeena --aoi claims.gpkg' (new project, everything);
+    'gossan run skeena --steps target,analyze,report' (reuse the data already harvested, offline);
+    'gossan run skeena --class metallic --no-cv' (quick look). Other settings, such as
+    target.min_target_ha or target.smooth_m, come from project.yaml.
+    """
+    if fmt not in {"pdf", "docx", "both"}:
+        raise typer.BadParameter("use pdf, docx or both", param_hint="--format")
+    try:
+        step_names = parse_names(steps, PIPELINE_STEPS, "step")
+        source_names = parse_names(sources, list(CONNECTORS), "source") if sources else None
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+    if aoi is not None:
+        if project_exists(project):
+            raise typer.BadParameter(f"{project} already exists; leave out --aoi to run on it", param_hint="--aoi")
+        new(name=str(project), aoi=aoi, crs=None, project=True, client=client, jurisdiction="auto")
+    elif not project_exists(project):
+        typer.secho(f"Error: {project} is not a Gossan project; pass --aoi to create it", fg="red", err=True)
+        raise typer.Exit(1)
+    proj = _open_project(project)
+    overrides = {k: v for k, v in {"occurrence_class": occurrence_class, "resolution_m": resolution}.items() if v is not None}
+    try:
+        cfg = TargetConfig.model_validate({**proj.config.target.model_dump(), **overrides})
+    except ValidationError as e:
+        bad = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise typer.BadParameter(bad) from e
+
+    outcomes = run_pipeline(
+        proj, step_names, sources=source_names, target_cfg=cfg, cross_validate=cv, report_format=fmt, reporter=_CliReporter(),
+    )  # fmt: skip
+    typer.secho("\n#### summary", bold=True)
+    for line in summary_lines(outcomes):
+        typer.echo(line)
+    if not all_ok(outcomes):
+        raise typer.Exit(1)
 
 
 leads_app = typer.Typer(help="Find and package properties likely to need digitization.", no_args_is_help=True)
@@ -188,12 +267,42 @@ def new(
     typer.echo(f"Created project {name} (CRS {config.crs}, jurisdiction {config.jurisdiction})")
 
 
+class _CliReporter(Reporter):
+    """Prints pipeline messages the way the individual commands always have."""
+
+    def say(self, level: str, text: str) -> None:
+        if level == "info":
+            typer.echo(text)
+        elif level in {"note", "warn"}:
+            typer.secho(text, fg="yellow", err=True)
+        elif level == "error":
+            typer.secho(text, fg="red", err=True)
+        else:
+            typer.echo(text, err=True)
+
+    def step(self, name: str) -> None:
+        typer.secho(f"\n#### {name}", bold=True)
+
+    def target_result(self, result: TargetResult) -> None:
+        _echo_target(result)
+
+    def analysis_result(self, name: str, result: object) -> None:
+        typer.secho(f"\n== {name}", bold=True)
+        for line in _analysis_findings(name, result):
+            typer.echo(f"  {line}")
+        for out in result.outputs:  # type: ignore[attr-defined]
+            typer.echo(f"  -> {out}")
+
+
 def _open_project(path: Path) -> Project:
     try:
-        return Project(path)
+        proj = Project(path)
     except FileNotFoundError as e:
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
+    for note in proj.migration_notes:
+        typer.secho(f"Note: project.yaml updated to settings version {CONFIG_VERSION}: {note}", fg="yellow", err=True)
+    return proj
 
 
 @app.command()
@@ -252,27 +361,7 @@ def harvest(
     if unknown:
         raise typer.BadParameter(f"unknown source(s): {', '.join(unknown)}", param_hint="--source")
 
-    failed = False
-    for n in names:
-        other = getattr(CONNECTORS[n], "jurisdiction", "any")
-        if other not in ("any", proj.config.jurisdiction):
-            typer.secho(f"Note: {n} is a {other} source and this is a {proj.config.jurisdiction} project.", fg="yellow", err=True)
-        connector = CONNECTORS[n](proj)
-        if hasattr(connector, "limit_scenes"):
-            connector.limit_scenes = limit_scenes
-        try:
-            count = connector.run()
-        except (ManualDownloadRequired, SatelliteAuthError) as e:
-            typer.secho(f"{n}: {e}", fg="yellow", err=True)
-            failed = True
-        except OSError as e:  # network failures (URLError is an OSError)
-            typer.secho(f"Error: {n}: {e}", fg="red", err=True)
-            typer.echo("Fallback: download the data manually and use 'gossan ingest'.", err=True)
-            failed = True
-        else:
-            typer.echo(f"{n}: {count} {connector.output_description}")
-            if hasattr(connector, "report"):
-                typer.echo(f"  {connector.report.text(n)}")
+    failed = bool(harvest_sources(proj, names, _CliReporter(), limit_scenes=limit_scenes).failures)
 
     if limit_pdfs:
         try:
@@ -784,21 +873,9 @@ def analyze_cmd(
     unknown = [n for n in names if n not in ANALYSIS_STEPS]
     if unknown:
         raise typer.BadParameter(f"unknown step(s): {', '.join(unknown)}", param_hint="--steps")
-    failed = False
-    for name in [n for n in ANALYSIS_STEPS if n in names]:
-        try:
-            result = ANALYSIS_STEPS[name](proj)
-        except AnalysisError as e:
-            typer.secho(f"{name}: skipped: {e}", fg="yellow", err=True)
-            # A plain run tolerates a missing target model; an explicit --steps request does not.
-            failed = failed or steps is not None or name != "targets"
-            continue
-        typer.secho(f"\n== {name}", bold=True)
-        for line in _analysis_findings(name, result):
-            typer.echo(f"  {line}")
-        for out in result.outputs:
-            typer.echo(f"  -> {out}")
-    if failed:
+    _, skipped = run_analysis_steps(proj, names, _CliReporter())
+    # A plain run tolerates a missing target model; an explicit --steps request does not.
+    if any(steps is not None or name != "targets" for name in skipped):
         raise typer.Exit(1)
 
 
@@ -870,6 +947,52 @@ def _analysis_findings(name: str, result: object) -> list[str]:
                 f"for the AOI (KS p={f['ks_p_value']:.3f})"
             )
     return lines
+
+
+def _echo_target(r: TargetResult) -> None:
+    """Print what a prospectivity run did: grid, features, cross-validation, targets, files."""
+    g = r.grid
+    d = g.describe()
+    typer.echo(
+        f"Grid: {g.width} x {g.height} cells ({d['n_cells_bbox']:,}) at {g.resolution:g} m in {g.crs}; "
+        f"{g.n_cells:,} cells ({d['area_km2']} km2) inside the AOI"
+    )
+    cls = "" if r.cfg.occurrence_class == "all" else f" ({r.cfg.occurrence_class})"
+    typer.echo(f"Known occurrences used as positives{cls}: {len(r.stack.positives)}")
+    if r.stack.bias is not None:
+        typer.echo("Background cells drawn in proportion to exploration effort (effort: bias)")
+    typer.echo(f"Features ({len(r.stack.model_names)}): {', '.join(r.stack.model_names)}")
+    for name, reason in r.stack.skipped.items():
+        typer.secho(f"  skipped {name}: {reason}", fg="yellow")
+    if r.cv is not None:
+        if r.cv["folds"]:
+            typer.echo(
+                f"Spatial CV ({r.cv['n_folds_scored']} fold(s)): AUC {r.cv['auc_mean']:.2f} +/- {r.cv['auc_std']:.2f}, "
+                f"top-5% capture {r.cv['capture_top5_mean']:.0%} +/- {r.cv['capture_top5_std']:.0%} (random: 5%)"
+            )
+            if r.cv.get("capture_top5_smoothed_mean") is not None:
+                typer.echo(
+                    f"  smoothed over {r.cfg.smooth_m:g} m: top-5% capture {r.cv['capture_top5_smoothed_mean']:.0%} "
+                    f"+/- {r.cv['capture_top5_smoothed_std']:.0%} (unsmoothed above)"
+                )
+            if r.cv.get("auc_effort_matched_mean") is not None:
+                typer.echo(
+                    f"  effort-matched AUC {r.cv['auc_effort_matched_mean']:.2f} +/- {r.cv['auc_effort_matched_std']:.2f} "
+                    "(occurrences vs equally explored ground; 0.5 = no skill)"
+                )
+        if r.cv.get("buffer_m") is not None:
+            typer.echo(f"  blocks {r.cv['block_size_m'] / 1000:.1f} km, {r.cv['buffer_m'] / 1000:.2f} km gap between test blocks and training cells")
+        for note in r.cv["skipped"]:
+            typer.secho(f"  CV: {note}", fg="yellow")
+    smoothed = f" of the score smoothed over {r.cfg.smooth_m:g} m" if r.cfg.smooth_m else ""
+    typer.echo(
+        f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile{smoothed} "
+        f"(threshold {r.threshold:.3f}); {r.n_dropped_small} under {r.cfg.min_target_ha:g} ha dropped"
+    )
+    for key, rel in r.outputs.items():
+        if key == "targets" and not r.n_targets:
+            continue
+        typer.echo(f"  {key}: {rel}")
 
 
 @app.command("target")
@@ -967,48 +1090,7 @@ def target_cmd(
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
 
-    g = r.grid
-    d = g.describe()
-    typer.echo(
-        f"Grid: {g.width} x {g.height} cells ({d['n_cells_bbox']:,}) at {g.resolution:g} m in {g.crs}; "
-        f"{g.n_cells:,} cells ({d['area_km2']} km2) inside the AOI"
-    )
-    cls = "" if r.cfg.occurrence_class == "all" else f" ({r.cfg.occurrence_class})"
-    typer.echo(f"Known occurrences used as positives{cls}: {len(r.stack.positives)}")
-    if r.stack.bias is not None:
-        typer.echo("Background cells drawn in proportion to exploration effort (effort: bias)")
-    typer.echo(f"Features ({len(r.stack.model_names)}): {', '.join(r.stack.model_names)}")
-    for name, reason in r.stack.skipped.items():
-        typer.secho(f"  skipped {name}: {reason}", fg="yellow")
-    if r.cv is not None:
-        if r.cv["folds"]:
-            typer.echo(
-                f"Spatial CV ({r.cv['n_folds_scored']} fold(s)): AUC {r.cv['auc_mean']:.2f} +/- {r.cv['auc_std']:.2f}, "
-                f"top-5% capture {r.cv['capture_top5_mean']:.0%} +/- {r.cv['capture_top5_std']:.0%} (random: 5%)"
-            )
-            if r.cv.get("capture_top5_smoothed_mean") is not None:
-                typer.echo(
-                    f"  smoothed over {r.cfg.smooth_m:g} m: top-5% capture {r.cv['capture_top5_smoothed_mean']:.0%} "
-                    f"+/- {r.cv['capture_top5_smoothed_std']:.0%} (unsmoothed above)"
-                )
-            if r.cv.get("auc_effort_matched_mean") is not None:
-                typer.echo(
-                    f"  effort-matched AUC {r.cv['auc_effort_matched_mean']:.2f} +/- {r.cv['auc_effort_matched_std']:.2f} "
-                    "(occurrences vs equally explored ground; 0.5 = no skill)"
-                )
-        if r.cv.get("buffer_m") is not None:
-            typer.echo(f"  blocks {r.cv['block_size_m'] / 1000:.1f} km, {r.cv['buffer_m'] / 1000:.2f} km gap between test blocks and training cells")
-        for note in r.cv["skipped"]:
-            typer.secho(f"  CV: {note}", fg="yellow")
-    smoothed = f" of the score smoothed over {r.cfg.smooth_m:g} m" if r.cfg.smooth_m else ""
-    typer.echo(
-        f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile{smoothed} "
-        f"(threshold {r.threshold:.3f}); {r.n_dropped_small} under {r.cfg.min_target_ha:g} ha dropped"
-    )
-    for key, rel in r.outputs.items():
-        if key == "targets" and not r.n_targets:
-            continue
-        typer.echo(f"  {key}: {rel}")
+    _echo_target(r)
 
 
 @leads_app.command("run")

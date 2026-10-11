@@ -1,7 +1,8 @@
 """Run qgis/gossan_toolbox.py inside a real (headless) QGIS, the way the Processing dialog does.
 
 Used by tests/test_qgis_toolbox.py through QGIS's own Python (python-qgis.bat); not a pytest file.
-Arguments: script path, AOI file, base directory, Gossan executable. Prints one JSON line.
+Arguments: script path, AOI file, base directory, Gossan executable, and optionally the word
+`analyze` to tick "Also analyze". Prints one JSON line.
 """
 
 import importlib.util
@@ -41,7 +42,8 @@ class Feedback(QgsProcessingFeedback):
         self.errors.append(error)
 
 
-params = {"INPUT": aoi, "PROJECT_NAME": "qgis_demo", "BASE_DIR": base, "GOSSAN": exe, "RESOLUTION": 200.0, "REUSE": False}
+analyze = len(sys.argv) > 5 and sys.argv[5] == "analyze"
+params = {"INPUT": aoi, "PROJECT_NAME": "qgis_demo", "BASE_DIR": base, "GOSSAN": exe, "RESOLUTION": 200.0, "REUSE": False, "ANALYZE": analyze}
 alg = module.GossanTargetingAlgorithm().create()  # a fresh instance, as the dialog makes
 context, feedback = QgsProcessingContext(), Feedback()
 out = {"check": list(alg.checkParameterValues(params, context)), "layers": []}
@@ -56,8 +58,15 @@ for node in QgsProject.instance().layerTreeRoot().findLayers():
         info.update(renderer=layer.renderer().type(), ramp=[round(i.value, 3) for i in shader.colorRampItemList()],
                     colours=[i.color.name() for i in shader.colorRampItemList()], bands=layer.bandCount())  # fmt: skip
     elif isinstance(layer, QgsVectorLayer):
-        symbol = layer.renderer().symbol().symbolLayer(0)
-        info.update(renderer=layer.renderer().type(), features=layer.featureCount(), outline=symbol.strokeColor().name())
+        renderer = layer.renderer()
+        if renderer.type() == "categorizedSymbol":
+            info.update(
+                renderer=renderer.type(), features=layer.featureCount(), attribute=renderer.classAttribute(),
+                categories=[[c.value(), c.symbol().color().name()] for c in renderer.categories()],
+            )  # fmt: skip
+        else:
+            symbol = renderer.symbol().symbolLayer(0)
+            info.update(renderer=renderer.type(), features=layer.featureCount(), outline=symbol.strokeColor().name())
     out["layers"].append(info)
 out["errors"] = feedback.errors
 print("RESULT:" + json.dumps(out, default=str))
