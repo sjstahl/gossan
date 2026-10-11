@@ -50,12 +50,16 @@ def pu_bagging(
     min_samples_leaf: int,
     unlabeled_ratio: float,
     seed: int,
+    unlabeled_weights: np.ndarray | None = None,
 ) -> PuResult:
     """Train ``n_bags`` positive-versus-unlabeled forests and score ``score_rows``.
 
     ``y`` is 1 for known occurrences and 0 for unlabeled cells, for every row of ``X``.
     Bags are drawn from ``train_rows``. A scored row that is also a training row is scored only
     by bags whose sample left it out; rows outside ``train_rows`` are scored by every bag.
+    ``unlabeled_weights`` (one non-negative value per row of ``X``) makes the unlabeled draw
+    proportional to it (target-group background: weight by exploration effort); None draws
+    uniformly.
     Raises ``ValueError`` if there are fewer than two positives or no unlabeled cells to train on.
     """
     rng = np.random.default_rng(seed)
@@ -67,6 +71,11 @@ def pu_bagging(
         raise ValueError("no unlabeled cells to train against")
     n_pos_bag = max(2, round(POSITIVE_FRACTION * len(pos)))
     n_unl_bag = int(min(len(unl), max(1, round(unlabeled_ratio * n_pos_bag))))
+    p_unl = None
+    if unlabeled_weights is not None:
+        w = np.clip(np.asarray(unlabeled_weights, dtype=np.float64)[unl], 0.0, None)
+        if w.sum() > 0 and (w > 0).sum() >= n_unl_bag:
+            p_unl = w / w.sum()
 
     total = np.zeros(len(score_rows))
     total_sq = np.zeros(len(score_rows))
@@ -76,7 +85,7 @@ def pu_bagging(
     in_bag = np.zeros(len(y), dtype=bool)
     for b in range(n_bags):
         sample_pos = rng.choice(pos, size=n_pos_bag, replace=False)
-        sample_unl = rng.choice(unl, size=n_unl_bag, replace=False)
+        sample_unl = rng.choice(unl, size=n_unl_bag, replace=False, p=p_unl)
         rows = np.concatenate([sample_pos, sample_unl])
         labels = np.concatenate([np.ones(len(sample_pos)), np.zeros(len(sample_unl))])
         forest = RandomForestClassifier(

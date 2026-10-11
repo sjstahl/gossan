@@ -217,8 +217,11 @@ def _top(z: pd.DataFrame) -> list[str]:
     return tops
 
 
-def analyze_geochem(project: Project) -> GeochemResult:
-    rgs = read_layer(project, "rgs", required=True)
+def score_samples(rgs: gpd.GeoDataFrame) -> GeochemResult:
+    """Score every RGS sample (see the module docstring); writes nothing.
+
+    Raises ``AnalysisError`` if fewer than three elements are usable as continuous data.
+    """
     choices = choose_columns(rgs)
     ppm = to_ppm(rgs, choices)
     continuous = [c.element for c in choices if c.tier == "continuous"]
@@ -310,6 +313,13 @@ def analyze_geochem(project: Project) -> GeochemResult:
             if samples[c].notna().any()
         },
     }
+    return GeochemResult(samples, elements, loadings, summary)
+
+
+def analyze_geochem(project: Project) -> GeochemResult:
+    """Score the project's RGS samples and write the results to ``analysis/``."""
+    result = score_samples(read_layer(project, "rgs", required=True))
+    samples, elements, loadings, summary = result.samples, result.elements, result.loadings, result.summary
     outputs = [
         write_layer(project, samples, "rgs_scores"),
         write_table(project, elements, "geochem_elements"),
@@ -321,8 +331,9 @@ def analyze_geochem(project: Project) -> GeochemResult:
         {
             "elements_continuous": summary["elements_continuous"],
             "elements_censored": summary["elements_censored"],
-            "n_components": k,
+            "n_components": len(summary["pca_explained_variance"]),
             "anomaly_top_fraction": ANOMALY_TOP_FRACTION,
         },
     )  # fmt: skip
-    return GeochemResult(samples, elements, loadings, summary, outputs)
+    result.outputs = outputs
+    return result

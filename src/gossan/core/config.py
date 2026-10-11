@@ -93,6 +93,26 @@ class TargetConfig(BaseModel):
     #: A feature with more than this fraction of the AOI missing is dropped; the rest are
     #: filled with the feature's median.
     max_missing_fraction: float = Field(default=0.6, ge=0, le=1)
+    #: Which known occurrences are the positives, by BC deposit-profile class: "all", "metallic",
+    #: "industrial" or "specialty" (see ``gossan.analyze.occurrences``). Needs DEPOSIT_TYPE_CODE1.
+    occurrence_class: Literal["all", "metallic", "industrial", "specialty"] = "all"
+    #: Exploration effort (ARIS report density, tenure density). "bias" (default): not features;
+    #: unlabeled cells are drawn in proportion to effort, so the model contrasts occurrences with
+    #: equally explored ground instead of learning where people looked. "feature": the two layers
+    #: are model inputs (the pre-2026-10 behaviour). "ignore": neither.
+    effort: Literal["bias", "feature", "ignore"] = "bias"
+    #: Add the label-derived distance to the nearest known occurrence as a feature. It mostly
+    #: reproduces known camps, so it is off by default.
+    occurrence_distance: bool = False
+    #: Add ``unit_favourability``: how enriched each bedrock unit is in (training) occurrences,
+    #: rebuilt from the training occurrences only in every cross-validation fold.
+    unit_favourability: bool = True
+    #: RGS geochemistry features: "indices" (default; deposit-model pathfinder indices and leading
+    #: compositional principal components from ``gossan analyze``'s scoring) or "elements" (the
+    #: raw ``geochem_elements``).
+    geochem_features: Literal["indices", "elements"] = "indices"
+    #: How many leading geochemical principal components become features ("indices" mode).
+    geochem_components: int = Field(default=3, ge=0, le=6)
 
 
 class ProjectConfig(BaseModel):

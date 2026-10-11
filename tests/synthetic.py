@@ -21,7 +21,13 @@ runner = CliRunner()
 
 
 def small_cfg(**kw) -> TargetConfig:
-    base = {"resolution_m": 100.0, "n_bags": 4, "n_trees": 15, "folds": 3, "seed": 1}
+    """A fast config. It pins the original feature set (effort layers as features, raw elements, the
+    occurrence-distance feature), which these tests were written against; the evidence-first
+    defaults are tested in test_target_evidence.py."""
+    base = {
+        "resolution_m": 100.0, "n_bags": 4, "n_trees": 15, "folds": 3, "seed": 1,
+        "effort": "feature", "occurrence_distance": True, "geochem_features": "elements",
+    }  # fmt: skip
     return TargetConfig(**{**base, **kw})
 
 

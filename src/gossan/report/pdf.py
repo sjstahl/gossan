@@ -164,9 +164,22 @@ def friendly_feature(name: str) -> str:
         "dist_minfile": "Distance to known occurrences",
         "nrcan_magnetics": "Regional magnetics (NRCan)",
         "nrcan_gravity": "Regional gravity (NRCan)",
+        "unit_favourability": "Host-unit favourability (occurrences per unit area)",
+        "dist_fault": "Distance to faults",
+        "dist_thrust": "Distance to thrust faults",
+        "dist_contact": "Distance to geological contacts",
+        "dist_intrusive": "Distance to intrusions",
+        "unit_age_ma": "Bedrock unit age",
+        "elevation": "Elevation",
+        "slope": "Slope",
+        "relief": "Local relief",
     }
     if name in known:
         return known[name]
+    if name.startswith("rgs_idx_"):
+        return f"Stream-sediment pathfinder index: {name[8:].replace('_', ' ')}"
+    if name.startswith("rgs_pc"):
+        return f"Stream-sediment principal component {name[6:]}"
     if name.startswith("rgs_"):
         return f"Stream-sediment geochemistry: {name[4:].capitalize()}"
     return name

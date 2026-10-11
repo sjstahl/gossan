@@ -201,3 +201,71 @@ def test_unknown_step(project):
     result = runner.invoke(app, ["analyze", "demo", "--steps", "magic"])
     assert result.exit_code != 0
     assert "unknown step" in result.output
+
+
+# --- target decision table -------------------------------------------------------------
+
+
+def _targets(project: Project) -> None:
+    """Three targets: one in a park, one under tenure, one on open ground."""
+    out = project.root / "target"
+    out.mkdir()
+    gpd.GeoDataFrame(
+        {
+            "rank": [1, 2, 3],
+            "target_id": ["T001", "T002", "T003"],
+            "n_cells": [4, 4, 4],
+            "area_ha": [4.0, 4.0, 4.0],
+            "mean_score": [0.9, 0.8, 0.7],
+            "max_score": [0.95, 0.85, 0.75],
+            "mean_spread": [0.05, 0.05, 0.05],
+            "n_known_occurrences": [0, 1, 0],
+        },
+        geometry=[
+            box(X0 + 200, Y0 + 200, X0 + 400, Y0 + 400),  # park
+            box(EAST + 200, Y0 + 200, EAST + 400, Y0 + 400),  # tenure
+            box(X0 + 1500, Y0 + 2000, X0 + 1700, Y0 + 2200),  # open
+        ],
+        crs=CRS,
+    ).to_file(out / "targets.gpkg", layer="targets_top", driver="GPKG")
+    _write(project, "parks_protected", gpd.GeoDataFrame(
+        {"PROTECTED_LANDS_NAME": ["TEST PARK"]}, geometry=[box(X0, Y0, X0 + 1000, Y0 + 1000)], crs=CRS))
+    _write(project, "mto_tenure", gpd.GeoDataFrame(
+        {"TENURE_NUMBER_ID": [1], "TENURE_TYPE_DESCRIPTION": ["Mineral"], "OWNER_NAME": ["ACME LTD"],
+         "GOOD_TO_DATE": ["2027-01-31"]},
+        geometry=[box(EAST, Y0, X0 + W, Y0 + 1000)], crs=CRS))
+    _write(project, "crown_grants", gpd.GeoDataFrame(
+        {"LOT_STATUS": ["NOT GRANTED"]}, geometry=[box(X0 + 1400, Y0 + 1900, X0 + 1800, Y0 + 2300)], crs=CRS),
+        ACCESS_ONLY_BC)
+    _write(project, "roads", gpd.GeoDataFrame(
+        {"ROAD_CLASS": ["resource"]}, geometry=[LineString([(X0, Y0 + 2100), (X0 + 1000, Y0 + 2100)])], crs=CRS),
+        ACCESS_ONLY_BC)
+    _write(project, "aris_index", gpd.GeoDataFrame(
+        {"REPORT_YEAR": [1990, 2012], "MERGE_SPENT_2002": [10000.0, 50000.0]},
+        geometry=[Point(EAST + 300, Y0 + 300), Point(EAST + 900, Y0 + 300)], crs=CRS), ACCESS_ONLY_BC)  # fmt: skip
+
+
+def test_target_decisions(project):
+    _targets(project)
+    result = runner.invoke(app, ["analyze", "demo", "--steps", "geochem,targets"])
+    assert result.exit_code == 0, result.output
+    t = pd.read_csv(project.root / "analysis" / "target_decisions.csv").set_index("target_id")
+    assert list(t["ground_status"]) == ["excluded", "held", "open"]
+    assert t.loc["T001", "excluded_share"] == 1.0 and "TEST PARK" in t.loc["T001", "notes"]
+    assert t.loc["T002", "tenure_holders"] == "ACME LTD" and t.loc["T002", "earliest_good_to"] == "2027-01-31"
+    assert "Aldridge" in t.loc["T002", "main_unit"] and t.loc["T001", "main_unit_share"] == 1.0
+    assert t.loc["T002", "n_aris_reports"] == 2 and t.loc["T002", "latest_report_year"] == 2012
+    assert t.loc["T002", "reported_spend_2002_dollars"] == 60000
+    assert t.loc["T003", "crown_grant_share"] == 0.0  # a "not granted" lot is not private title
+    assert t.loc["T003", "dist_road_m"] == pytest.approx(500, abs=1)
+    assert t.loc["T003", "n_aris_reports"] == 0 and "no assessment reports" in t.loc["T003", "notes"]
+    assert t["best_geochem_index"].notna().all() and t["n_geochem_anomalies"].ge(0).all()
+    assert t.loc["T002", "dist_fault_m"] == pytest.approx(100, abs=1)  # fault at X0 + 3500, target edge at X0 + 3400
+    assert "open 1" in result.output and "#3 T003" in result.output
+    record = next(r for r in project.provenance.read() if r.dataset == "analysis_targets")
+    assert "Access Only" in record.license
+
+
+def test_target_decisions_need_targets(project):
+    result = runner.invoke(app, ["analyze", "demo", "--steps", "targets"])
+    assert result.exit_code == 1 and "gossan target" in result.output

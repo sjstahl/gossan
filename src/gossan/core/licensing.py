@@ -60,7 +60,11 @@ def derived_license_from(records: list[ProvenanceRecord], datasets: list[str]) -
     names the open licences involved.
     """
     licences = input_licenses(records, datasets)
-    restricted = sorted(d for d, lic in licences.items() if "access only" in lic.lower())
+    restricted = sorted(
+        {d for d, lic in licences.items() if "access only" in lic.lower()}
+        # Fail-safe: ARIS data is Access Only even when the ledger has no record of it.
+        | {d for d in datasets if ARIS_DATASET.match(d.lower())}
+    )
     if restricted:
         return f"Derived product including Access Only data ({', '.join(restricted)}): internal use only"
     upstream = sorted(set(licences.values()))

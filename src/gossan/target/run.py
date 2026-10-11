@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from gossan.core.config import TargetConfig
-from gossan.core.licensing import derived_license
+from gossan.core.licensing import derived_license_from
 from gossan.core.project import Project
 from gossan.target.cv import run_cv
 from gossan.target.features import (
@@ -16,6 +16,7 @@ from gossan.target.features import (
     FeatureStack,
     assemble_matrix,
     build_stack,
+    input_datasets,
 )
 from gossan.target.grid import Grid, GridError, build_grid
 from gossan.target.model import pu_bagging
@@ -64,7 +65,7 @@ def run_target(
     n_pos = len(stack.positives)
     if n_pos < cfg.min_positives:
         raise TargetError(
-            f"{n_pos} known occurrence(s) fall in the AOI's {grid.resolution:g} m cells "
+            f"{n_pos} known {'' if cfg.occurrence_class == 'all' else cfg.occurrence_class + ' '}occurrence(s) fall in the AOI's {grid.resolution:g} m cells "
             f"({stack.n_occurrences_total} in the layer, {stack.n_occurrences_outside} outside the "
             f"AOI); at least {cfg.min_positives} are needed (target.min_positives). Use a larger "
             "AOI or a coarser --resolution (several occurrences in one cell count once)"
@@ -84,7 +85,7 @@ def run_target(
     fit = pu_bagging(
         X, y, everything, everything,
         n_bags=cfg.n_bags, n_trees=cfg.n_trees, min_samples_leaf=cfg.min_samples_leaf,
-        unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed,
+        unlabeled_ratio=cfg.unlabeled_ratio, seed=cfg.seed, unlabeled_weights=stack.bias,
     )  # fmt: skip
 
     out = target_dir(project.root)
@@ -100,8 +101,7 @@ def run_target(
     }
     write_cog(paths["prospectivity"], grid, {"prospectivity": grid.to_raster(fit.score)})
     write_cog(paths["uncertainty"], grid, {"uncertainty": grid.to_raster(fit.spread)})
-    bands = {n: grid.to_raster(stack.X[:, i]) for i, n in enumerate(stack.names)}
-    bands["dist_minfile"] = grid.to_raster(X[:, -1])
+    bands = {n: grid.to_raster(X[:, i]) for i, n in enumerate(stack.model_names)}
     write_cog(paths["feature_stack"], grid, bands)
 
     targets, threshold = top_percentile_polygons(grid, fit.score, fit.spread, stack.positives, cfg.top_percentile)
@@ -115,6 +115,9 @@ def run_target(
         **grid.describe(),
         "nodata": NODATA,
         "n_known_occurrences_in_aoi": n_pos,
+        "occurrence_class": cfg.occurrence_class,
+        "effort": cfg.effort,
+        "background_weighted_by_effort": stack.bias is not None,
         "n_occurrences_in_layer": stack.n_occurrences_total,
         "n_occurrences_outside_aoi": stack.n_occurrences_outside,
         "features_used": stack.model_names,
@@ -130,6 +133,9 @@ def run_target(
         "grid": [grid.height, grid.width],
         "n_cells_in_aoi": grid.n_cells,
         "n_positives": n_pos,
+        "occurrence_class": cfg.occurrence_class,
+        "effort": cfg.effort,
+        "geochem_features": cfg.geochem_features,
         "features_used": stack.model_names,
         "features_skipped": stack.skipped,
         "model": {
@@ -142,7 +148,13 @@ def run_target(
         },
         "cv": None
         if cv is None
-        else {k: cv[k] for k in ("n_folds_scored", "auc_mean", "auc_std", "capture_top5_mean", "capture_top5_std", "skipped")},
+        else {
+            k: cv[k]
+            for k in (
+                "n_folds_scored", "auc_mean", "auc_std", "auc_effort_matched_mean", "auc_effort_matched_std",
+                "capture_top5_mean", "capture_top5_std", "skipped",
+            )
+        },
         "top_percentile": cfg.top_percentile,
         "score_threshold": threshold,
         "n_targets": len(targets),
@@ -155,7 +167,7 @@ def run_target(
             source="gossan",
             identifier=path.relative_to(project.root).as_posix(),
             url=None,
-            license=derived_license(project.provenance.read(), includes_aris="aris_density" in stack.names),
+            license=derived_license_from(project.provenance.read(), input_datasets(stack)),
             operation="target_run",
             parameters={"output": name, **params},
         )

@@ -77,7 +77,9 @@ def all_licenses(project: Project) -> str:
 def test_the_us_layers_feed_the_target_module_unchanged(nevada):
     result = runner.invoke(app, ["target", "nv", "--resolution", "500", "--n-bags", "3", "--folds", "3"])
     assert result.exit_code == 0, result.output
-    assert "Known occurrences used as positives: " in result.output and "dist_minfile" in result.output
+    assert "Known occurrences used as positives: " in result.output
+    # No geology, geochemistry or terrain layers: the model falls back to effort as features, loudly.
+    assert "fell back to exploration effort" in result.output
     assert "tenure_density" in result.output  # BLM claims arrive as the tenure layer
     assert "aris_density" not in result.output.split("skipped")[0]  # there is no ARIS index to use
     out = nevada.root / "target"

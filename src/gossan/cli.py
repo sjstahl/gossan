@@ -7,8 +7,10 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated
 
+import pandas as pd
 import pymupdf
 import typer
+from pydantic import ValidationError
 from typer.core import TyperGroup
 
 from gossan.analyze import STEPS as ANALYSIS_STEPS
@@ -20,7 +22,7 @@ from gossan.core.aoi import (
     utm_zones_spanned,
     write_aoi,
 )
-from gossan.core.config import AOI_FILE, ProjectConfig
+from gossan.core.config import AOI_FILE, ProjectConfig, TargetConfig
 from gossan.core.ingest import IngestError
 from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
@@ -740,6 +742,10 @@ def analyze_cmd(
     occurrences: known MINFILE occurrences against bedrock units, periods, rock classes and
     faults, split into metallic and industrial classes, with production, inventory and nearest
     RGS sample per occurrence.
+    targets (after 'gossan target'): one row per target with its evidence (host unit, faults,
+    nearby geochemistry, occurrences), ground status (tenure and holders, parks and other
+    excluded land, reserves, crown grants), access (roads, power) and history (assessment
+    reports and spend, Notices of Work). Confirm land status on Mineral Titles Online.
 
     Writes to analysis/ (CSV tables, analysis.gpkg layers for QGIS, JSON summaries) and logs to
     provenance. Outputs that use Access Only inputs are marked internal. A step whose input layer
@@ -756,7 +762,8 @@ def analyze_cmd(
             result = ANALYSIS_STEPS[name](proj)
         except AnalysisError as e:
             typer.secho(f"{name}: skipped: {e}", fg="yellow", err=True)
-            failed = True
+            # A plain run tolerates a missing target model; an explicit --steps request does not.
+            failed = failed or steps is not None or name != "targets"
             continue
         typer.secho(f"\n== {name}", bold=True)
         for line in _analysis_findings(name, result):
@@ -790,6 +797,21 @@ def _analysis_findings(name: str, result: object) -> list[str]:
         for idx, top in s["top_samples_by_index"].items():
             best = top[0]
             lines.append(f"top {idx[4:]}: {best.get('MASTER_ID', '?')} ({best[idx]:.2f}) {best['top_elements']}")
+    elif name == "targets":
+        s = result.summary  # type: ignore[attr-defined]
+        lines.append(f"{s['n_targets']} target(s): " + ", ".join(f"{k} {v}" for k, v in s["by_ground_status"].items()))
+        t = result.table  # type: ignore[attr-defined]
+        for _, row in t.head(10).iterrows():
+            bits = [f"#{row['rank']} {row['target_id']}", f"{row['area_ha']:.0f} ha", f"score {row['mean_score']:.2f}", row["ground_status"]]
+            if isinstance(row.get("main_unit"), str):
+                bits.append(row["main_unit"])
+            if isinstance(row.get("best_geochem_index"), str):
+                bits.append(f"geochem {row['best_geochem_index']} {row['best_geochem_value']:.1f}")
+            if "dist_road_m" in row and pd.notna(row["dist_road_m"]):
+                bits.append(f"road {row['dist_road_m'] / 1000:.1f} km")
+            lines.append(" | ".join(str(b) for b in bits))
+            if isinstance(row.get("notes"), str):
+                lines.append(f"    {row['notes']}")
     elif name == "occurrences":
         s = result.summary  # type: ignore[attr-defined]
         lines.append(f"{s['n_occurrences']} occurrence(s): " + ", ".join(f"{k} {v}" for k, v in s["by_class"].items()))
@@ -823,14 +845,33 @@ def target_cmd(
     cv: Annotated[
         bool, typer.Option("--cv/--no-cv", help="Run spatial cross-validation (slower; reports how well it generalises).")
     ] = True,
+    occurrence_class: Annotated[
+        str | None,
+        typer.Option(
+            "--class",
+            help="Positives: all, metallic, industrial or specialty occurrences (BC deposit-profile code). "
+            "Default: target.occurrence_class (all).",
+        ),
+    ] = None,
+    effort: Annotated[
+        str | None,
+        typer.Option(
+            help="Exploration effort (ARIS and tenure density): bias (weight background sampling; default), "
+            "feature (model inputs, the old behaviour) or ignore. Default: target.effort.",
+        ),
+    ] = None,
 ) -> None:
     """Rank the AOI by prospectivity: a PU-bagging random forest on harvested layers.
 
-    Known MINFILE occurrences in the AOI are the positives; every other cell is unlabeled, not
-    barren. Features are built from whatever the project has (tenure, ARIS report density, RGS
-    geochemistry, regional geophysics rasters, distance to occurrences); missing layers are
-    skipped and listed. Needs at least target.min_positives (10) occurrences inside the AOI, so
-    use a regional AOI. Writes target/prospectivity.tif (a relative score, not a probability of
+    Known MINFILE occurrences in the AOI are the positives (optionally one commodity class with
+    --class); every other cell is unlabeled, not barren. Features describe the ground: distance
+    to faults, thrusts, contacts and intrusions, unit age (bedrock_geology, faults), terrain
+    (dem), RGS pathfinder indices and principal components, and regional geophysics rasters;
+    missing layers are skipped and listed. Exploration effort is not a feature by default: it
+    weights which cells serve as background, so the model is not rewarded for finding where
+    people already looked (--effort feature restores the old behaviour; with no evidence layers
+    at all it falls back to that automatically and says so). Needs at least
+    target.min_positives (10) occurrences inside the AOI, so use a regional AOI. Writes target/prospectivity.tif (a relative score, not a probability of
     a deposit), target/uncertainty.tif (spread across bags), target/targets.gpkg (the top
     percentile as polygons), feature_stack.tif, feature_importance.csv, cv_report.json and
     grid.json, and logs the run to provenance. The ARIS index is Access Only: keep outputs internal.
@@ -838,10 +879,17 @@ def target_cmd(
     proj = _open_project(project)
     overrides = {
         k: v
-        for k, v in {"resolution_m": resolution, "n_bags": n_bags, "folds": folds, "seed": seed}.items()
+        for k, v in {
+            "resolution_m": resolution, "n_bags": n_bags, "folds": folds, "seed": seed,
+            "occurrence_class": occurrence_class, "effort": effort,
+        }.items()
         if v is not None
-    }
-    cfg = proj.config.target.model_copy(update=overrides)
+    }  # fmt: skip
+    try:
+        cfg = TargetConfig.model_validate({**proj.config.target.model_dump(), **overrides})
+    except ValidationError as e:
+        bad = "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}" for err in e.errors())
+        raise typer.BadParameter(bad) from e
     try:
         r = run_target(proj, cfg, cross_validate=cv)
     except TargetError as e:
@@ -854,7 +902,10 @@ def target_cmd(
         f"Grid: {g.width} x {g.height} cells ({d['n_cells_bbox']:,}) at {g.resolution:g} m in {g.crs}; "
         f"{g.n_cells:,} cells ({d['area_km2']} km2) inside the AOI"
     )
-    typer.echo(f"Known occurrences used as positives: {len(r.stack.positives)}")
+    cls = "" if r.cfg.occurrence_class == "all" else f" ({r.cfg.occurrence_class})"
+    typer.echo(f"Known occurrences used as positives{cls}: {len(r.stack.positives)}")
+    if r.stack.bias is not None:
+        typer.echo("Background cells drawn in proportion to exploration effort (effort: bias)")
     typer.echo(f"Features ({len(r.stack.model_names)}): {', '.join(r.stack.model_names)}")
     for name, reason in r.stack.skipped.items():
         typer.secho(f"  skipped {name}: {reason}", fg="yellow")
@@ -864,6 +915,11 @@ def target_cmd(
                 f"Spatial CV ({r.cv['n_folds_scored']} fold(s)): AUC {r.cv['auc_mean']:.2f} +/- {r.cv['auc_std']:.2f}, "
                 f"top-5% capture {r.cv['capture_top5_mean']:.0%} +/- {r.cv['capture_top5_std']:.0%} (random: 5%)"
             )
+            if r.cv.get("auc_effort_matched_mean") is not None:
+                typer.echo(
+                    f"  effort-matched AUC {r.cv['auc_effort_matched_mean']:.2f} +/- {r.cv['auc_effort_matched_std']:.2f} "
+                    "(occurrences vs equally explored ground; 0.5 = no skill)"
+                )
         for note in r.cv["skipped"]:
             typer.secho(f"  CV: {note}", fg="yellow")
     typer.echo(f"Targets: {r.n_targets} polygon(s) at or above the {r.cfg.top_percentile:g}th percentile (score {r.threshold:.3f})")
