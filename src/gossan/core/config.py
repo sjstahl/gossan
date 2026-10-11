@@ -85,6 +85,22 @@ class GeochemConfig(BaseModel):
     min_unit_share: float = Field(default=0.02, ge=0, lt=1)
 
 
+class TenureConfig(BaseModel):
+    """Settings for the tenure watchlist (``gossan analyze --steps tenure``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Flag a tenure whose good-to date falls within this many days (ground may open up, or the
+    #: holder must file work or pay to keep it).
+    expiring_days: int = Field(default=180, ge=1)
+    #: Flag a tenure issued within this many days (recent staking).
+    recent_days: int = Field(default=365, ge=1)
+    #: Flag a tenure whose record was updated within this many days (``UPDATE_TIMESTAMP``).
+    update_days: int = Field(default=90, ge=1)
+    #: Flag a tenure that has changed hands at least this many times.
+    churn_transfers: int = Field(default=2, ge=1)
+
+
 class TargetConfig(BaseModel):
     """Settings for prospectivity modelling (``gossan target``). See ``gossan.target``."""
 
@@ -215,6 +231,7 @@ class ProjectConfig(BaseModel):
     satellite: SatelliteConfig = Field(default_factory=SatelliteConfig)
     target: TargetConfig = Field(default_factory=TargetConfig)
     geochem: GeochemConfig = Field(default_factory=GeochemConfig)
+    tenure: TenureConfig = Field(default_factory=TenureConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name")

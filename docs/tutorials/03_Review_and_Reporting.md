@@ -287,6 +287,31 @@ A part whose inputs are missing says which command produces it. If the analysis 
 
 The Word file is for editing; it has the same headings, tables and figures, with figure captions in the *Caption* style.
 
+### Tenure watch: what changed on the ground
+
+Mineral Titles Online publishes only *current* tenure, so it cannot tell you what changed. Gossan keeps the history itself: every `gossan harvest` saves the raw tenure layer (an identical download is reused, not stored again) and logs when it looked, and `gossan analyze --steps tenure` compares consecutive saved snapshots. The report's **Tenure activity** section and `analysis/tenure_*.csv` show:
+
+| Change | Meaning |
+|---|---|
+| `new` | not listed before: newly staked or registered |
+| `gone` | no longer listed: lapsed, forfeited, converted or cancelled (the layer does not say which) |
+| `owner changed`, `transferred` | the holders differ, or the ownership-transfer count rose |
+| `work filed`, `cash in lieu` | assessment work was filed, or cash was paid instead: an active holder |
+| `extended` | the good-to date moved later |
+| `reduced`, `area changed` | the area shrank (or a reduction was recorded) or grew by more than 1% |
+
+Each change says between which two dates it happened (when the old state was last seen and when the new one was first seen). A snapshot that suddenly lists no tenure at all is treated as a failed download and ignored, not as every claim lapsing.
+
+The **watchlist** works from the very first harvest, from fields the layer already carries: tenures whose good-to date is within 180 days, tenures staked in the last year, records updated in the last 90 days, and tenures that have changed hands twice or more (change the thresholds under `tenure:` in `project.yaml`). Targets whose ground saw a change get a note in the decision table.
+
+Changes only appear once at least two snapshots exist, so run the pipeline on a schedule. Weekly is plenty:
+
+```powershell
+gossan run skeena_2026 --steps harvest,analyze,report
+```
+
+On Windows, Task Scheduler can run that command weekly (**Create Basic Task**, trigger *Weekly*, action *Start a program*, program `C:\gossan\venv\Scripts\gossan.exe`, arguments as above, *Start in* your base folder). Each run adds a snapshot only if the tenure layer actually changed.
+
 ---
 
 ## Drilling indicator on BC leads
@@ -398,6 +423,7 @@ The *Notices* section lists the ones that apply to your project automatically.
 | Manual georeference | `gossan ingest-points <project> <aris> <page> <file.points>` |
 | Pitch pack PDF | `gossan report <project>` |
 | Pitch pack for one lead | `gossan report <project> --lead <tenure_number>` |
+| Tenure watch (changes and watchlist) | `gossan analyze <project> --steps tenure` |
 | Whole job: harvest, model, analyze, report | `gossan run <project> [--aoi <file>] [--class metallic]` |
 | Analysis report (PDF and Word) | `gossan report <project> --kind analysis` |
 

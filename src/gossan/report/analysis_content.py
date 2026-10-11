@@ -28,6 +28,7 @@ from gossan.report.analysis_figures import (
     geology_map,
     ground_map,
     read_csv,
+    tenure_map,
 )
 from gossan.report.assets import finite_range, raster_map
 from gossan.report.builder import data_sources
@@ -143,6 +144,9 @@ class Loaded:
     target_cv: dict | None
     importance: pd.DataFrame | None
     stale: list[str]
+    tenure: dict | None = None
+    tenure_events: pd.DataFrame | None = None
+    tenure_watch: pd.DataFrame | None = None
 
 
 def load(project: Project) -> Loaded:
@@ -154,7 +158,7 @@ def load(project: Project) -> Loaded:
     stale = []
     if project.data_gpkg.exists():
         newest_data = project.data_gpkg.stat().st_mtime
-        for name in ("inventory.csv", "geochem_summary.json", "occurrence_summary.json", "target_decisions.csv"):
+        for name in ("inventory.csv", "geochem_summary.json", "occurrence_summary.json", "tenure_summary.json", "target_decisions.csv"):
             path = a / name
             if path.exists() and path.stat().st_mtime < newest_data:
                 stale.append(name)
@@ -174,6 +178,9 @@ def load(project: Project) -> Loaded:
         cv if cv and cv.get("folds") else None,
         importance,
         stale,
+        _json(a / "tenure_summary.json"),
+        read_csv(project, "tenure_changes"),
+        read_csv(project, "tenure_watch"),
     )
 
 
@@ -219,6 +226,13 @@ def _findings(project: Project, L: Loaded) -> list[str]:
             f"{g['n_samples']} stream-sediment samples were scored on {len(g['elements_continuous'])} continuous and "
             f"{len(g['elements_censored'])} mostly-below-detection elements; {g['n_multivariate_anomalies']} have an unusual overall element combination"
             + (f", each mapped to the {c['median_catchment_km2']:.1f} km² (median) catchment it drains." if isinstance(c, dict) else ".")
+        )
+    t = L.tenure
+    if t and t.get("available"):
+        wc = t["watch_counts"]
+        out.append(
+            f"Tenure: {wc['expiring']} of {t['n_tenures']} tenures reach their good-to date within 180 days and {wc['recent_staking']} were staked in the last year"
+            + (f"; {t['n_events']} change(s) between {t['n_snapshots']} saved snapshots." if t["n_snapshots"] >= 2 else "; only one snapshot is saved, so changes cannot be compared yet.")
         )
     d = L.decisions_summary
     if d:
@@ -460,6 +474,65 @@ def _sec_targets(project: Project, L: Loaded, assets: Path) -> list[Block]:
     return blocks
 
 
+def _sec_tenure(project: Project, L: Loaded, assets: Path) -> list[Block]:
+    blocks: list[Block] = [Heading("Tenure activity")]
+    s = L.tenure
+    if s is None:
+        return blocks + _need("gossan analyze --steps tenure", "The tenure analysis")
+    if not s.get("available"):
+        return blocks + [Para(f"Not available: {s.get('reason', 'no tenure data')}.")]
+    blocks.append(
+        Para(
+            "Mineral Titles Online publishes only current tenure, so Gossan keeps its own history: every harvest saves the tenure layer, and consecutive saved "
+            "snapshots are compared. The watchlist below is read from the latest snapshot and works from the first harvest."
+        )
+    )
+    n_snap, age = s["n_snapshots"], s.get("latest_snapshot_age_days")
+    when = ", ".join(f"{x['first_seen'][:10]}" for x in s["snapshots"][-3:])
+    blocks.append(Para(f"{s['n_tenures']} tenures in the area; {n_snap} saved snapshot(s)" + (f" (latest: {when.split(', ')[-1]}, {age} day(s) before this report)." if n_snap else ".")))
+    if n_snap < 2:
+        blocks.append(Note("Only one snapshot exists, so there is nothing to compare yet. Re-run `gossan run <project> --steps harvest,analyze,report` on a schedule (weekly is enough) and changes appear in the next report.", "warn"))
+    elif age is not None and age > 30:
+        blocks.append(Note(f"The latest snapshot is {age} days old: re-harvest to see current tenure.", "warn"))
+    for note in s.get("notes", []):
+        blocks.append(Note(note, "warn"))
+    fig = tenure_map(project, assets / "tenure.png")
+    if fig:
+        blocks.append(Figure(fig, "Figure 6. Mineral tenure: staked in the last year (blue), good-to date soon (orange), and changed between snapshots (black outline).", 0.95))
+
+    ev = L.tenure_events
+    if n_snap >= 2:
+        blocks.append(Heading("Changes between snapshots", 2))
+        if ev is None:
+            blocks.append(Para(f"No tenure changed between the {n_snap} snapshots ({s['snapshots'][0]['first_seen'][:10]} to {s['snapshots'][-1]['last_seen'][:10]})."))
+        else:
+            counts = ev["change"].value_counts()
+            blocks.append(Table([["Kind of change", "Tenures"], *[[k.replace("_", " "), str(int(v))] for k, v in counts.items()]], [3.0, 1.0],
+                                "'gone' means no longer listed (lapsed, forfeited, converted or cancelled; the layer does not say which)."))
+            rows = [["Tenure", "Change", "Detail", "Holder", "Happened between"]]
+            for r in ev.sort_values("by", ascending=False).head(15).itertuples():
+                rows.append([str(r.tenure_number), r.change.replace("_", " "), _text(r.detail), _text(r.owner), f"{r.after} and {r.by}"])
+            blocks.append(Table(rows, [0.8, 1.1, 2.4, 2.0, 1.5], f"Most recent {min(len(ev), 15)} of {len(ev)} changes; the full list is analysis/tenure_changes.csv."))
+
+    wc = s["watch_counts"]
+    blocks.append(Heading("Watchlist", 2))
+    blocks.append(Bullets([
+        f"{wc['expiring']} tenure(s) with a good-to date in the next 180 days: the holder must file work or pay to keep them, or the ground may open.",
+        f"{wc['recent_staking']} staked in the last year; {wc['recently_updated']} with a record updated in the last 90 days; {wc['churn']} that have changed hands twice or more.",
+    ]))
+    w = L.tenure_watch
+    if w is not None:
+        rows = [["Tenure", "Claim", "Holder", "ha", "Flags", "Good to", "Days"]]
+        for r in w.head(15).itertuples():
+            rows.append([str(r.tenure_number), _text(r.claim_name), _text(r.owner), _num(r.area_ha), r.flags.replace("_", " "), _text(r.good_to_date), _num(r.days_to_good_to)])
+        blocks.append(Table(rows, [0.7, 1.4, 1.9, 0.5, 1.7, 0.9, 0.5], f"Top {min(len(w), 15)} of {len(w)} by number of flags, then soonest expiry. The full list is analysis/tenure_watch.csv."))
+    if s.get("recent_staking_by_owner"):
+        blocks.append(Heading("Recent staking by holder", 2))
+        blocks.append(Table([["Holder", "Tenures", "Hectares"], *[[o["owner"], str(o["tenures"]), f"{o['hectares']:,.0f}"] for o in s["recent_staking_by_owner"]]], [3.4, 0.9, 1.1],
+                            "Tenures issued in the last year, largest holders first."))
+    return blocks
+
+
 def _sec_decisions(project: Project, L: Loaded, assets: Path) -> list[Block]:
     blocks: list[Block] = [Heading("Target decision table")]
     d = L.decisions
@@ -471,7 +544,7 @@ def _sec_decisions(project: Project, L: Loaded, assets: Path) -> list[Block]:
         "(over half under tenure or crown grant), partly held, or open (no tenure recorded)."))
     fig = ground_map(project, assets / "ground.png")
     if fig:
-        blocks.append(Figure(fig, "Figure 6. Targets at their centroids, sized by area and coloured by ground status.", 0.95))
+        blocks.append(Figure(fig, "Figure 7. Targets at their centroids, sized by area and coloured by ground status.", 0.95))
     rows = [["#", "Target", "ha", "Score", "Ground", "Host unit", "Geochemistry", "Road km", "Notes"]]
     for r in d.sort_values("rank").head(MAX_TARGET_ROWS).itertuples():
         geo = ""
@@ -532,7 +605,7 @@ def _sec_sources(project: Project, notices: list[str]) -> list[Block]:
 
 
 #: Sections that start on a new page; the short ones (data, method, sources) follow on.
-NEW_PAGE = {"geology", "geochemistry", "targets", "decisions", "method"}
+NEW_PAGE = {"geology", "geochemistry", "targets", "tenure", "decisions", "method"}
 
 NOTICES = {
     "Open Government Licence - British Columbia": "Contains information licensed under the Open Government Licence - British Columbia.",
@@ -564,6 +637,7 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
         "geology": lambda: _sec_geology(project, L, assets),
         "geochemistry": lambda: _sec_geochem(project, L, assets),
         "targets": lambda: _sec_targets(project, L, assets),
+        "tenure": lambda: _sec_tenure(project, L, assets),
         "decisions": lambda: _sec_decisions(project, L, assets),
         "method": lambda: _sec_method(project, L),
         "sources": lambda: _sec_sources(project, notices),

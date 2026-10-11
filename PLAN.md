@@ -212,7 +212,7 @@ The phases above were built in order, then extended. This section is the current
 | Plan | State |
 |---|---|
 | 1 Foundation, 2 BC harvest | Done and much wider: **25 BC sources** (occurrences, tenure, ARIS, NoW, RGS; bedrock geology, faults, Quaternary cover, mineral potential; MINFILE production and inventory; historic notices, mine permits, crown grants; parks, conservancies, reserves, treaty land; roads, power lines; NRCan MRDEM-30 terrain). Identical re-downloads are not stored twice (`core/rawstore.py`). |
-| 3 Leads | Done (BC and US scoring, drilling indicator). Tenure *change* detection is still missing: only the current snapshot is used. |
+| 3 Leads | Done (BC and US scoring, drilling indicator). Tenure change detection now exists as an analysis step (below); leads do not use it yet. |
 | 4 Digitize | Done through review and drillhole tables. Its outputs do not yet feed the model. |
 | 5 Spectral | **Not built.** Only scene search and download (EMIT, EnMAP, ASTER) exist; `src/gossan/spectral/` is empty. |
 | 6 Targeting | Done and reworked (below). |
@@ -223,6 +223,7 @@ The phases above were built in order, then extended. This section is the current
 - `gossan analyze` (`src/gossan/analyze/`): data inventory; RGS geochemistry (element quality tiers with below-detection handling, Fe-Mn correction, pathfinder indices, compositional PCA, robust multivariate anomalies); DEM stream catchments (own D8 routing, no GPL hydrology dependency); known occurrences against bedrock units and faults; per-target decision table (ground status, tenure, exclusions, access, history).
 - Target model: evidence features (faults, contacts, intrusions, unit age, terrain, geochemistry, host-unit favourability) instead of exploration effort; occurrence classes; automatic CV buffer; effort-matched AUC; minimum target size and optional smoothing.
 - US jurisdiction (MRDS, BLM claims, Nevada notices).
+- Tenure change detection (`analyze/tenure.py`): the raw tenure snapshots Gossan already keeps are compared (new, gone, owner changed, transferred, work filed, cash in lieu, extended, reduced), plus a watchlist (expiring, recently staked or updated, frequently transferred) that works from one harvest; shown in the analysis report, the decision table, and QGIS-ready layers.
 - `gossan run` (`src/gossan/pipeline.py`): harvest, target, analyze and report in dependency order, each step degrading on its own, with a status table and a provenance record of the run; also behind the QGIS tool's "Also analyze" option.
 - Project settings are versioned (`config_version`); opening an older `project.yaml` migrates defaults that were deliberately changed (so a project created before the CV gap became automatic does not silently keep `cv_buffer_m: 0`).
 - Provenance carries the code revision; `uv.lock` pins the tested dependency set; `scripts/backup_repo.py` writes verified git bundles; CI workflow in `.github/workflows/`.
@@ -233,4 +234,4 @@ The phases above were built in order, then extended. This section is the current
 - Cross-validation without a gap between test blocks and training cells flatters the model: effort-matched AUC 0.63 with no gap, 0.56 at 2 km, 0.52 at 5 km, chance at 10 km. The model's skill is local (it extends known camps better than it finds new ones far from them).
 - Correcting geochemistry for lithology or dilution lowered the indices' ability to pick out catchments with known occurrences, because host units carry the mineralization there. Both are opt-in.
 
-**Next (see the review of October 2026):** tenure change detection; regional magnetics as features; basic spectral indices; leads combined with targets; a knowledge-driven score beside the random forest; client deliverables (QGIS project, interactive map, Word template); validation on larger BC areas.
+**Next (see the review of October 2026):** regional magnetics as features; basic spectral indices; leads combined with targets; a knowledge-driven score beside the random forest; client deliverables (QGIS project, interactive map, Word template); validation on larger BC areas.

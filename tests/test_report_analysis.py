@@ -109,7 +109,7 @@ def test_pdf_content_and_marking(built):
         text = "\n".join(page.get_text() for page in pdf)
         footers = [page.get_text().count("INTERNAL DRAFT | Contains Access Only data") for page in pdf]
     for heading in ("Summary", "Read this first", "Data compiled", "Geology and known occurrences", "Stream-sediment geochemistry",
-                    "Targets", "Target decision table", "Method and limits", "Data sources and licences"):  # fmt: skip
+                    "Targets", "Tenure activity", "Target decision table", "Method and limits", "Data sources and licences"):  # fmt: skip
         assert heading in text, heading
     assert all(footers)  # every page is marked
     assert "INTERNAL DRAFT - NOT FOR DISTRIBUTION" in text and "roads" in text.split("written permission")[0]
@@ -126,7 +126,7 @@ def test_word_file_matches_the_pdf_structure(built):
     headings = [p.text for p in doc.paragraphs if p.style.name in {"Heading 1", "Title"}]
     assert headings[0] == "demo: analysis report"
     assert headings[1:] == ["Summary", "Data compiled", "Geology and known occurrences", "Stream-sediment geochemistry",
-                            "Targets", "Target decision table", "Method and limits", "Data sources and licences"]  # fmt: skip
+                            "Targets", "Tenure activity", "Target decision table", "Method and limits", "Data sources and licences"]  # fmt: skip
     assert len(doc.inline_shapes) >= 5 and len(doc.tables) >= 8
     assert any(p.style.name == "Caption" and p.text.startswith("Figure 1.") for p in doc.paragraphs)
     assert "INTERNAL DRAFT" in doc.sections[0].footer.paragraphs[0].text

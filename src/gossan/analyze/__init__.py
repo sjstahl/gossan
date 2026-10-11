@@ -1,5 +1,6 @@
 """Analysis of harvested data: inventory, geochemistry, occurrences against geology, and a
-decision table for the targets of ``gossan target``.
+tenure activity (changes between saved snapshots, and a watchlist), and a decision table for the
+targets of ``gossan target``.
 
 Each step reads ``data.gpkg`` (and ``rasters/``), writes to ``<project>/analysis/`` (tables as CSV,
 spatial results as layers of ``analysis.gpkg``, a JSON summary) and logs its outputs to provenance
@@ -12,12 +13,16 @@ from gossan.analyze.geochem import analyze_geochem
 from gossan.analyze.inventory import build_inventory
 from gossan.analyze.occurrences import analyze_occurrences
 from gossan.analyze.targets import build_decisions
+from gossan.analyze.tenure import build_tenure_changes
 
 STEPS = {
     "inventory": build_inventory,
     "geochem": analyze_geochem,
     "occurrences": analyze_occurrences,
+    "tenure": build_tenure_changes,
     "targets": build_decisions,
 }
 
-__all__ = ["STEPS", "AnalysisError", "analyze_geochem", "analyze_occurrences", "build_decisions", "build_inventory"]
+__all__ = [
+    "STEPS", "AnalysisError", "analyze_geochem", "analyze_occurrences", "build_decisions", "build_inventory", "build_tenure_changes",
+]  # fmt: skip

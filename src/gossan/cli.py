@@ -917,6 +917,21 @@ def _analysis_findings(name: str, result: object) -> list[str]:
         for idx, top in s["top_samples_by_index"].items():
             best = top[0]
             lines.append(f"top {idx[4:]}: {best.get('MASTER_ID', '?')} ({best[idx]:.2f}) {best['top_elements']}")
+    elif name == "tenure":
+        s = result.summary  # type: ignore[attr-defined]
+        if not s["available"]:
+            return [s["reason"]]
+        lines.append(f"{s['n_tenures']} tenure(s) in the AOI; {s['n_snapshots']} saved snapshot(s)" + (f", latest {s['latest_snapshot_age_days']} day(s) old" if s["latest_snapshot_age_days"] is not None else ""))
+        if s["n_snapshots"] < 2:
+            lines.append("only one snapshot so far: changes appear after the next harvest (schedule 'gossan run <project> --steps harvest,analyze,report')")
+        else:
+            by = ", ".join(f"{v} {k}" for k, v in s["events_by_type"].items()) or "none"
+            lines.append(f"changes between snapshots: {by}")
+        wc = s["watch_counts"]
+        lines.append(f"watchlist ({s['n_watch']}): " + ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in wc.items()))
+        for o in s["recent_staking_by_owner"][:3]:
+            lines.append(f"recently staked by {o['owner']}: {o['tenures']} tenure(s), {o['hectares']:,.0f} ha")
+        lines.extend(f"note: {n}" for n in s["notes"])
     elif name == "targets":
         s = result.summary  # type: ignore[attr-defined]
         lines.append(f"{s['n_targets']} target(s): " + ", ".join(f"{k} {v}" for k, v in s["by_ground_status"].items()))

@@ -79,6 +79,18 @@ def _years(values: pd.Series) -> pd.Series:
     return pd.to_numeric(values, errors="coerce")
 
 
+def _tenure_changes(project: Project) -> gpd.GeoDataFrame | None:
+    """The ``tenure_changes`` layer from ``gossan analyze --steps tenure``, if it has any rows."""
+    path = project.root / "analysis" / "analysis.gpkg"
+    if not path.exists():
+        return None
+    try:
+        gdf = gpd.read_file(path, layer="tenure_changes", engine="pyogrio")
+    except Exception:  # noqa: BLE001 (no such layer: no tenure changes were found)
+        return None
+    return gdf.to_crs(project.config.crs) if len(gdf) else None
+
+
 def build_decisions(project: Project) -> TargetDecisionResult:
     path = project.root / TARGETS_FILE
     if not path.exists():
@@ -176,6 +188,19 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         if "SITE_MINERAL_IND" in reserves:
             reserves = reserves[reserves["SITE_MINERAL_IND"].astype(str).str.upper().eq("Y")]
         t["mineral_reserve_share"] = _share(t, reserves) if len(reserves) else 0.0
+    changes = _tenure_changes(project)
+    if changes is not None:
+        inputs.append("mto_tenure")
+        summaries = []
+        for i, geom in enumerate(t.geometry):
+            hit = changes[changes.intersects(geom)]
+            if hit.empty:
+                summaries.append(None)
+                continue
+            counts = hit["change"].value_counts()
+            summaries.append("; ".join(f"{k.replace('_', ' ')} {int(v)}" for k, v in counts.items()))
+            notes[i].append(f"tenure activity on or beside it between snapshots ({summaries[-1]}; {hit['after'].min()} to {hit['by'].max()})")
+        t["tenure_changes"] = summaries
     grants = read_layer(project, "crown_grants")
     if grants is not None:
         inputs.append("crown_grants")

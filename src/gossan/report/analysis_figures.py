@@ -262,6 +262,37 @@ def ground_map(project: Project, dest: Path, label_top: int = 10) -> Path | None
     return _finish(fig, ax, dest, project.config.crs)
 
 
+def tenure_map(project: Project, dest: Path) -> Path | None:
+    """Mineral tenure shaded by what is worth watching (expiring soon, recently staked), with
+    tenures that changed between saved snapshots outlined in black."""
+    tenure = data_layer(project, "mto_tenure")
+    watch = analysis_layer(project, "tenure_watch")
+    if tenure is None or watch is None:
+        return None
+    changes = analysis_layer(project, "tenure_changes")
+    fig, ax = plt.subplots(figsize=(6.5, 5.0))
+    handles = []
+    tenure.plot(ax=ax, facecolor="#f1f0ec", edgecolor="#c3c2b7", linewidth=0.3)
+    handles.append(plt.Rectangle((0, 0), 1, 1, facecolor="#f1f0ec", edgecolor="#c3c2b7", label=f"Other tenure ({len(tenure)} in all)"))
+    flags = watch["flags"].astype(str)
+    classes = (
+        ("recent_staking", BLUE, "Staked in the last year"),
+        ("expiring", ORANGE, "Good-to date soon"),  # drawn last so an expiring claim shows over a recent one
+    )
+    for flag, colour, label in classes:
+        sel = watch[flags.str.contains(flag)]
+        if len(sel):
+            sel.plot(ax=ax, facecolor=colour, edgecolor="white", linewidth=0.4, alpha=0.85)
+            handles.append(plt.Rectangle((0, 0), 1, 1, facecolor=colour, edgecolor="white", label=f"{label} ({len(sel)})"))
+    if changes is not None and len(changes):
+        changes.boundary.plot(ax=ax, color=INK, linewidth=1.3)
+        handles.append(plt.Line2D([], [], color=INK, linewidth=1.3, label=f"Changed between snapshots ({changes['tenure_number'].nunique()})"))
+    project.read_aoi().boundary.plot(ax=ax, color=AOI_COLOUR, linewidth=1.3)
+    _extent(ax, project)
+    _legend(ax, handles, ncol=2)
+    return _finish(fig, ax, dest, project.config.crs)
+
+
 def table_exists(project: Project, layer: str) -> bool:
     path = project.root / ANALYSIS_GPKG
     return path.exists() and layer in {str(n) for n in pyogrio.list_layers(path)[:, 0]}
