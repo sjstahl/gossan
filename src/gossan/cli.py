@@ -57,6 +57,7 @@ from gossan.harvest.satellite.stac import SatelliteAuthError
 from gossan.leads.generator import run_leads
 from gossan.leads.pack import LeadNotFoundError, build_pack
 from gossan.leads.scoring import MissingLayerError
+from gossan.report.analysis_render import build_analysis_report
 from gossan.report.builder import build_report
 from gossan.report.pdf import ReportError, build_pdf
 from gossan.target.run import TargetError, run_target
@@ -338,10 +339,18 @@ def report(
         str,
         typer.Option(
             "--format",
-            help="pdf (default): the pitch pack, outputs/report.pdf. docx: the short Word data-sources "
-            "report, outputs/report.docx. both: write both.",
+            help="pitch pack: pdf (default) is outputs/report.pdf, docx is the short Word data-sources "
+            "report outputs/report.docx. analysis: pdf and docx are the same full report "
+            "(outputs/analysis_report.*). both: write both. Default for --kind analysis: both.",
         ),
-    ] = "pdf",
+    ] = "",
+    kind: Annotated[
+        str,
+        typer.Option(
+            help="pitch (default): the pitch pack. analysis: the analysis report built from 'gossan analyze' "
+            "and 'gossan target' (data compiled, geology and occurrences, geochemistry, targets, decision table).",
+        ),
+    ] = "pitch",
     lead: Annotated[
         str | None,
         typer.Option(help="Feature this lead (tenure number from 'gossan leads run') in the PDF."),
@@ -354,10 +363,25 @@ def report(
     spatial cross-validation tables), before/after digitized samples a reviewer has approved,
     and data sources. Every page is marked INTERNAL DRAFT because it contains ARIS data, which is
     Access Only: do not send it outside the company without the Province's written permission.
+
+    --kind analysis writes the analysis report instead, as a PDF and a Word file with the same
+    content: summary and caveats, data compiled, geology and known occurrences, stream-sediment
+    geochemistry with catchments, the prospectivity model and its cross-validation, and the target
+    decision table (ground status, access, history), then method and data sources. It quotes the
+    files in analysis/ and target/, so run 'gossan analyze' and 'gossan target' first (a missing
+    part says which command produces it). Every page is marked INTERNAL DRAFT when any Access Only
+    dataset (ARIS, roads, crown grants, ...) is in the project.
     """
     proj = _open_project(project)
+    if kind not in {"pitch", "analysis"}:
+        raise typer.BadParameter("use pitch or analysis", param_hint="--kind")
+    fmt = fmt or ("both" if kind == "analysis" else "pdf")
     if fmt not in {"pdf", "docx", "both"}:
         raise typer.BadParameter("use pdf, docx or both", param_hint="--format")
+    if kind == "analysis":
+        for path in build_analysis_report(proj, fmt):
+            typer.echo(f"Wrote {path}")
+        return
     if fmt in {"docx", "both"}:
         typer.echo(f"Wrote {build_report(proj)}")
     if fmt in {"pdf", "both"}:

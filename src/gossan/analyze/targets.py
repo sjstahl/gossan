@@ -27,6 +27,7 @@ and some designations are not harvested: confirm on Mineral Titles Online before
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 
 import geopandas as gpd
 import numpy as np
@@ -49,6 +50,8 @@ GEOCHEM_RADIUS_M = 2000.0
 HISTORY_RADIUS_M = 1000.0
 EXCLUDED_LAYERS = ("parks_protected", "conservancies", "national_parks", "indian_reserves", "treaty_lands")
 MAJORITY = 0.5
+#: A tenure whose earliest expiry is this close is flagged in the notes (ground may come open).
+EXPIRY_SOON_DAYS = 180
 
 
 @dataclass
@@ -155,6 +158,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         t["tenure_holders"], t["earliest_good_to"] = holders, expiry
     excluded_layers = [(name, read_layer(project, name)) for name in EXCLUDED_LAYERS]
     present = [(n, g) for n, g in excluded_layers if g is not None]
+    unions = {n: g.geometry.union_all() for n, g in present}
     if present:
         inputs += [n for n, _ in present]
         t["excluded_share"] = _share(t, gpd.GeoDataFrame(pd.concat([g[["geometry"]] for _, g in present]), crs=t.crs))
@@ -164,7 +168,8 @@ def build_decisions(project: Project) -> TargetDecisionResult:
                 if len(hit):
                     label = next((c for c in ("PROTECTED_LANDS_NAME", "ENGLISH_NAME", "CLAB_ID") if c in hit), None)
                     what = ", ".join(sorted({str(v) for v in hit[label].dropna()})[:2]) if label else name
-                    notes[i].append(f"overlaps {name.replace('_', ' ')}: {what}")
+                    share = unions[name].intersection(geom).area / geom.area
+                    notes[i].append(f"{share:.0%} in {name.replace('_', ' ')}: {what}")
     reserves = read_layer(project, "reserve_sites")
     if reserves is not None:
         inputs.append("reserve_sites")
@@ -231,6 +236,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         default="open" if "tenure_share" in t else "unknown",
     )
     t["ground_status"] = status
+    today = datetime.now(UTC).date()
     for i in range(len(t)):
         row = t.iloc[i]
         if col("mineral_reserve_share").iloc[i] > 0:
@@ -238,7 +244,12 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         if col("crown_grant_share").iloc[i] > 0:
             notes[i].append(f"{row['crown_grant_share']:.0%} crown-granted (private mineral title)")
         if "earliest_good_to" in t and isinstance(row["earliest_good_to"], str):
-            notes[i].append(f"tenure good to {row['earliest_good_to']} at the earliest")
+            soon = (date.fromisoformat(row["earliest_good_to"]) - today).days <= EXPIRY_SOON_DAYS
+            notes[i].append(
+                f"tenure expires within {EXPIRY_SOON_DAYS // 30} months ({row['earliest_good_to']})"
+                if soon
+                else f"tenure good to {row['earliest_good_to']} at the earliest"
+            )
         if "dist_road_m" in t and row["dist_road_m"] > 5000:
             notes[i].append(f"{row['dist_road_m'] / 1000:.1f} km from the nearest mapped road")
         if "n_aris_reports" in t and row["n_aris_reports"] == 0:

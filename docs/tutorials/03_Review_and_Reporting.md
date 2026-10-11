@@ -254,6 +254,35 @@ A section without its data says which command produces it. If items are still pe
 
 ---
 
+## The analysis report (BC)
+
+The pitch pack is about leads and digitized material. For a desktop study of a BC area, `gossan report --kind analysis` writes a separate report from what `gossan analyze` and `gossan target` produced.
+
+```bash
+gossan harvest skeena_2026          # pulls geology, faults, land status, roads, terrain, ...
+gossan target skeena_2026 --class metallic
+gossan analyze skeena_2026
+gossan report skeena_2026 --kind analysis
+```
+
+It writes `outputs/analysis_report.pdf` **and** `outputs/analysis_report.docx` with the same content (`--format pdf` or `--format docx` for one). The figures are saved in `outputs/report_assets/analysis/`.
+
+| Section | What it shows |
+|---|---|
+| Summary and *Read this first* | Headline findings written from the numbers, and the caveats that apply (few occurrences, weak skill against equally explored ground, out-of-date analysis files). |
+| Data compiled | Every dataset with its count, AOI coverage and licence. |
+| Geology and known occurrences | Geology map with faults and occurrences, occurrences per bedrock unit against the unit's area, distance to faults. |
+| Stream-sediment geochemistry | Catchment map, samples to follow up, elements used, main patterns. |
+| Targets | Prospectivity map, what drives the model, cross-validation including the effort-matched AUC. |
+| Target decision table | Ground status, host unit, geochemistry, road distance and notes per target, with a map. |
+| Method and limits, Data sources | How it was made, and every dataset with its licence. |
+
+A part whose inputs are missing says which command produces it. If the analysis files are older than `data.gpkg`, the summary says to re-run `gossan analyze`. **When any Access Only dataset is in the project (ARIS, roads, crown grants, ...) every page is marked INTERNAL DRAFT** and the banner names the datasets; the same governance rules below apply.
+
+The Word file is for editing; it has the same headings, tables and figures, with figure captions in the *Caption* style.
+
+---
+
 ## Drilling indicator on BC leads
 
 A plain `gossan harvest` on a BC project also downloads `drilling_notices`: Mines Act **Notice of Work** applications and permits that include surface exploration drilling. `gossan leads run` then adds, to every lead:
@@ -363,6 +392,7 @@ The *Notices* section lists the ones that apply to your project automatically.
 | Manual georeference | `gossan ingest-points <project> <aris> <page> <file.points>` |
 | Pitch pack PDF | `gossan report <project>` |
 | Pitch pack for one lead | `gossan report <project> --lead <tenure_number>` |
+| Analysis report (PDF and Word) | `gossan report <project> --kind analysis` |
 
 Every command has full help: `gossan <command> --help`.
 

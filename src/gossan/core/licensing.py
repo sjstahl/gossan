@@ -42,6 +42,19 @@ def uses_aris(records: list[ProvenanceRecord]) -> bool:
     return bool(aris_evidence(records, limit=1))
 
 
+def access_only_datasets(records: list[ProvenanceRecord]) -> list[str]:
+    """Datasets whose retrieval record carries an Access Only licence, plus any ARIS dataset (ARIS is
+    Access Only even when the ledger forgot to say so), sorted. Gossan's own outputs are not listed,
+    only what they were made from."""
+    found = {
+        r.dataset
+        for r in records
+        if (r.operation in {"fetch", "manual_ingest"} and "access only" in r.license.lower())
+        or (r.operation in {"fetch", "manual_ingest", "fetch_pdf"} and ARIS_DATASET.match(r.dataset.lower()))
+    }
+    return sorted(found)
+
+
 def input_licenses(records: list[ProvenanceRecord], datasets: list[str]) -> dict[str, str]:
     """Licence of each named dataset, from its latest fetch or manual-ingest record (datasets
     with no such record are left out)."""
