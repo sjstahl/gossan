@@ -11,6 +11,8 @@ import pymupdf
 import typer
 from typer.core import TyperGroup
 
+from gossan.analyze import STEPS as ANALYSIS_STEPS
+from gossan.analyze import AnalysisError
 from gossan.core.aoi import (
     detect_jurisdiction,
     read_aoi,
@@ -720,6 +722,89 @@ def review_reject(
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
     typer.echo(f"Rejected {item.item_id} ({item.type}, ARIS {item.report})")
+
+
+@app.command("analyze")
+def analyze_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder with harvested layers.")],
+    steps: Annotated[
+        str | None,
+        typer.Option(help=f"Comma-separated steps to run, in this order: {', '.join(ANALYSIS_STEPS)}. Default: all."),
+    ] = None,
+) -> None:
+    """Analyze the harvested data and summarize what it says.
+
+    inventory: every layer and raster with its AOI coverage, source and licence.
+    geochem: RGS multi-element scores (normal scores, Fe-Mn scavenging correction, deposit-model
+    pathfinder indices, compositional PCA, multivariate anomalies).
+    occurrences: known MINFILE occurrences against bedrock units, periods, rock classes and
+    faults, split into metallic and industrial classes, with production, inventory and nearest
+    RGS sample per occurrence.
+
+    Writes to analysis/ (CSV tables, analysis.gpkg layers for QGIS, JSON summaries) and logs to
+    provenance. Outputs that use Access Only inputs are marked internal. A step whose input layer
+    is missing is skipped with the harvest command that would supply it.
+    """
+    proj = _open_project(project)
+    names = [s.strip() for s in steps.split(",") if s.strip()] if steps else list(ANALYSIS_STEPS)
+    unknown = [n for n in names if n not in ANALYSIS_STEPS]
+    if unknown:
+        raise typer.BadParameter(f"unknown step(s): {', '.join(unknown)}", param_hint="--steps")
+    failed = False
+    for name in [n for n in ANALYSIS_STEPS if n in names]:
+        try:
+            result = ANALYSIS_STEPS[name](proj)
+        except AnalysisError as e:
+            typer.secho(f"{name}: skipped: {e}", fg="yellow", err=True)
+            failed = True
+            continue
+        typer.secho(f"\n== {name}", bold=True)
+        for line in _analysis_findings(name, result):
+            typer.echo(f"  {line}")
+        for out in result.outputs:
+            typer.echo(f"  -> {out}")
+    if failed:
+        raise typer.Exit(1)
+
+
+def _analysis_findings(name: str, result: object) -> list[str]:
+    """A few plain-language lines summarizing a step's result."""
+    lines: list[str] = []
+    if name == "inventory":
+        t = result.table  # type: ignore[attr-defined]
+        lines.append(f"{len(t)} dataset(s): {int((t['kind'] == 'vector').sum())} vector, {int((t['kind'] == 'raster').sum())} raster")
+        for _, row in t.iterrows():
+            lines.append(f"{row['dataset']:<22} {row['n_features']!s:>6}  {row['coverage'] if isinstance(row['coverage'], str) else ''}")
+    elif name == "geochem":
+        s = result.summary  # type: ignore[attr-defined]
+        lines.append(
+            f"{s['n_samples']} samples; {len(s['elements_continuous'])} continuous and "
+            f"{len(s['elements_censored'])} censored element(s) ({', '.join(s['elements_censored'])})"
+        )
+        if s["elements_dropped"]:
+            lines.append(f"dropped: {', '.join(s['elements_dropped'])}")
+        for pc, load in list(s["pca_top_loadings"].items())[:3]:
+            share = s["pca_explained_variance"][int(pc[2:]) - 1]
+            lines.append(f"{pc} ({share:.0%}): +{'/'.join(load['positive'])}  vs  -{'/'.join(load['negative'])}")
+        lines.append(f"{s['n_multivariate_anomalies']} multivariate anomal(ies) (most unusual element combinations)")
+        for idx, top in s["top_samples_by_index"].items():
+            best = top[0]
+            lines.append(f"top {idx[4:]}: {best.get('MASTER_ID', '?')} ({best[idx]:.2f}) {best['top_elements']}")
+    elif name == "occurrences":
+        s = result.summary  # type: ignore[attr-defined]
+        lines.append(f"{s['n_occurrences']} occurrence(s): " + ", ".join(f"{k} {v}" for k, v in s["by_class"].items()))
+        for subset, units in s.get("enriched_units", {}).items():
+            for u in units[:3]:
+                lines.append(
+                    f"[{subset}] {u['group']}: {u['n_occurrences']} on {u['area_share']:.1%} of area "
+                    f"({u['ratio']:.1f}x expected, p={u['p_value']:.3f})"
+                )
+        for key, f in s.get("fault_proximity", {}).items():
+            lines.append(
+                f"[{key}] median distance to fault {f['median_occurrence_m']:.0f} m vs {f['median_area_m']:.0f} m "
+                f"for the AOI (KS p={f['ks_p_value']:.3f})"
+            )
+    return lines
 
 
 @app.command("target")

@@ -42,6 +42,33 @@ def uses_aris(records: list[ProvenanceRecord]) -> bool:
     return bool(aris_evidence(records, limit=1))
 
 
+def input_licenses(records: list[ProvenanceRecord], datasets: list[str]) -> dict[str, str]:
+    """Licence of each named dataset, from its latest fetch or manual-ingest record (datasets
+    with no such record are left out)."""
+    out: dict[str, str] = {}
+    for r in records:
+        if r.dataset in datasets and r.operation in {"fetch", "manual_ingest"}:
+            out[r.dataset] = r.license
+    return out
+
+
+def derived_license_from(records: list[ProvenanceRecord], datasets: list[str]) -> str:
+    """Licence text for a Gossan output made from ``datasets``.
+
+    If any input is Access Only, the output is internal and says which inputs made it so (the
+    words "Access Only" keep ``aris_evidence`` marking deliverables that use it). Otherwise it
+    names the open licences involved.
+    """
+    licences = input_licenses(records, datasets)
+    restricted = sorted(d for d, lic in licences.items() if "access only" in lic.lower())
+    if restricted:
+        return f"Derived product including Access Only data ({', '.join(restricted)}): internal use only"
+    upstream = sorted(set(licences.values()))
+    if not upstream:
+        return "Derived product from the project's layers"
+    return "Derived product from harvested layers (" + "; ".join(upstream) + ")"
+
+
 def derived_license(records: list[ProvenanceRecord], *, includes_aris: bool) -> str:
     """Licence text for a Gossan-made output.
 
