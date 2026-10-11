@@ -61,6 +61,27 @@ Boundary worked; the client package there is 4.6 MB of map plus 1.8 MB of GeoPac
    every sample near a target had no usable pathfinder index. It now leaves those columns empty (regression
    test in `tests/test_analyze.py`).
 
+## Decisions taken from it
+
+1. **`target.occurrence_class` now defaults to `auto`** (settings version 3): metallic occurrences where the minfile
+   layer has deposit-type codes and at least `min_positives` metallic occurrences fall in the area, otherwise all,
+   with the reason printed. Projects still on the old default (`all`) are moved to `auto` when opened, and the
+   change is logged and announced; setting `all` again afterwards sticks.
+2. **The generic knowledge-score mix no longer includes the intrusive rule** (weight 0; the porphyry/skarn, vein and
+   gold presets keep it at 3, 1.5 and 1). Re-scoring all four areas on held-out blocks with metallic labels:
+
+   | Region | Knowledge AUC / effort-matched, intrusive weight 1 | weight 0 |
+   |---|---|---|
+   | Boundary | 0.797 / 0.662 | 0.800 / 0.658 |
+   | East Kootenay, wide | 0.674 / 0.576 | 0.673 / 0.571 |
+   | Quesnel | 0.706 / 0.640 | 0.707 / 0.649 |
+   | Stewart | 0.768 / 0.629 | 0.749 / 0.621 |
+
+   Removing it changes the score by 0.01 or less in three areas and costs 0.02 at Stewart, all inside the fold-to-fold
+   spread (0.04 to 0.11). So this is a principled change (a rule with a mean single-layer AUC of 0.51 across the four
+   areas does not belong in a generic mix, and where intrusives matter the deposit model says so), not a measured
+   accuracy gain.
+
 ## Limits of this validation
 
 - One run per region with one seed, and 5 folds: the numbers carry the spread shown, and a ±0.05 difference

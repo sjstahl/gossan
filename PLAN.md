@@ -249,6 +249,6 @@ The phases above were built in order, then extended. This section is the current
 
 - Validation on larger BC areas (`scripts/validate_regions.py`, results in `docs/validation/`): four areas of 7,000 to 16,000 km² (Boundary, East Kootenay wide, Quesnel, Stewart). Forest effort-matched AUC 0.55 to 0.65; the unfitted knowledge score matched or beat it in three of four areas; metallic-only labels helped in three of four; harvest and all steps worked at up to 1.6 M cells (2.2 GB peak, ~20 min for two model runs); one bug found and fixed (decision table when no sample index is usable). Findings and limits in `docs/validation/bc_regions_2026-10.md`.
 
-**Done:** the ten review items. Open questions from the validation: whether `occurrence_class: metallic` should be the BC default, and whether the generic knowledge weights should change.
+**Done:** the ten review items. Decisions from the validation: `target.occurrence_class` defaults to `auto` (metallic where deposit-type codes exist; settings version 3 migrates projects still on `all`), and the generic knowledge mix drops the intrusive rule (kept in the porphyry, vein and gold presets).
 
 **Next (see the review of October 2026):** validation on larger BC areas.
