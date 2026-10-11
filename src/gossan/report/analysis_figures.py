@@ -262,6 +262,71 @@ def ground_map(project: Project, dest: Path, label_top: int = 10) -> Path | None
     return _finish(fig, ax, dest, project.config.crs)
 
 
+#: Diverging ramps (blue to a neutral grey to red) for signed magnetic quantities.
+DIVERGING = LinearSegmentedColormap.from_list("div_br", ["#0d366b", "#3987e5", "#cde2fb", "#f0efec", "#f6c8c1", "#e34948", "#8a1f1f"])
+
+
+def magnetics_map(project: Project, dest: Path) -> Path | None:
+    """The regional magnetic field and its tilt angle side by side, with faults and occurrences.
+    None without a magnetic grid or when it cannot be differentiated."""
+    from matplotlib.colors import TwoSlopeNorm
+
+    from gossan.target.features import find_magnetic_raster
+    from gossan.target.magnetics import MagneticsError, derivatives
+
+    cfg = project.config.target
+    path = find_magnetic_raster(project, cfg)
+    if path is None or cfg.magnetics == "off":
+        return None
+    import rasterio
+
+    with rasterio.open(path) as ds:
+        if ds.crs is None or not ds.crs.is_projected:
+            return None
+        field = ds.read(1, masked=True).astype(np.float64).filled(np.nan)
+        b, dx = ds.bounds, abs(ds.transform.a)
+        crs_ok = ds.crs.to_string() == project.config.crs
+    try:
+        layers = derivatives(field, dx, regional_m=cfg.magnetic_regional_m, texture_m=cfg.magnetic_texture_m).layers
+    except MagneticsError:
+        return None
+    if not crs_ok:  # drawn in the raster's own CRS; the project layers would not line up
+        return None
+    aoi = project.read_aoi()
+    minx, miny, maxx, maxy = aoi.total_bounds
+    pad = 0.04 * max(maxx - minx, maxy - miny)
+    fig, axes = plt.subplots(1, 2, figsize=(7.0, 4.2), sharey=True)
+    lo, hi = (float(v) for v in np.nanpercentile(layers["mag_field"], [2, 98]))
+    mid = float(np.nanmedian(layers["mag_field"]))
+    panels = (
+        (axes[0], layers["mag_field"], TwoSlopeNorm(vcenter=mid, vmin=min(lo, mid - 1e-6), vmax=max(hi, mid + 1e-6)), "Magnetic field (nT)"),
+        (axes[1], layers["mag_tilt"], TwoSlopeNorm(vcenter=0.0, vmin=-90, vmax=90), "Tilt angle (degrees)"),
+    )
+    faults = data_layer(project, "faults")
+    occ = data_layer(project, "minfile")
+    for ax, data, norm, label in panels:
+        im = ax.imshow(data, extent=(b.left, b.right, b.bottom, b.top), cmap=DIVERGING, norm=norm, interpolation="nearest")
+        cbar = fig.colorbar(im, ax=ax, fraction=0.05, pad=0.02, orientation="horizontal")
+        cbar.set_label(label, fontsize=7)
+        cbar.ax.tick_params(labelsize=6)
+        if faults is not None:
+            faults.plot(ax=ax, color=INK, linewidth=0.5)
+        if occ is not None:
+            occ.plot(ax=ax, color=ORANGE, edgecolor="white", markersize=14, linewidth=0.4, zorder=5)
+        aoi.boundary.plot(ax=ax, color=AOI_COLOUR, linewidth=1.2)
+        ax.set_xlim(minx - pad, maxx + pad)
+        ax.set_ylim(miny - pad, maxy + pad)
+        ax.set_aspect("equal")
+        ax.ticklabel_format(style="plain", useOffset=False)
+        ax.tick_params(labelsize=5, labelrotation=25)
+    fig.suptitle("Regional magnetics (faults black, known occurrences orange)", fontsize=8)
+    fig.tight_layout()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(dest, dpi=130)
+    plt.close(fig)
+    return dest
+
+
 def tenure_map(project: Project, dest: Path) -> Path | None:
     """Mineral tenure shaded by what is worth watching (expiring soon, recently staked), with
     tenures that changed between saved snapshots outlined in black."""

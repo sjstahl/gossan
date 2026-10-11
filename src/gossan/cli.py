@@ -411,19 +411,31 @@ def ingest(
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Replace the layer or raster if it exists.")
     ] = False,
+    crs: Annotated[
+        str | None,
+        typer.Option("--crs", help="CRS to assign when the file has none (for example EPSG:3978 or EPSG:4269); many geophysical grids carry none."),
+    ] = None,
+    buffer_m: Annotated[
+        float,
+        typer.Option("--buffer-m", min=0, help="Raster grids: keep this margin (metres) around the AOI. Derivatives (magnetic tilt, vertical derivative) need one; 5000 is a good start."),
+    ] = 0.0,
 ) -> None:
     """Load a local file into the project; the manual fallback for any harvest source.
 
     Vector files (shp, geojson, gpkg, ...) are reprojected to the project CRS, clipped
-    to the AOI and written to data.gpkg. A .tif raster is clipped, reprojected and
-    written as a Cloud Optimized GeoTIFF to rasters/<layer>.tif. A copy of the original
-    goes to raw/ingest/ and the ingest is logged to provenance.jsonl. The file must
-    have a CRS defined.
+    to the AOI and written to data.gpkg. A raster grid (.tif, ER Mapper .ers, .gxf, ASCII .asc,
+    Surfer .grd) is clipped, reprojected and written as a Cloud Optimized GeoTIFF to
+    rasters/<layer>.tif. A copy of the original (with companion files) goes to raw/ingest/ and the
+    ingest is logged to provenance.jsonl. The file needs a CRS, or pass --crs.
+
+    Regional magnetics: ingest the grid as --layer magnetics with --buffer-m 5000, and
+    'gossan target' builds magnetic derivative features from it (see 'gossan harvest --source
+    nrcan_geophysics' for where to get one).
     """
     proj = _open_project(project)
     try:
         message = ingest_file(
-            proj, file_path, layer, source=source, license=license, overwrite=overwrite
+            proj, file_path, layer, source=source, license=license, overwrite=overwrite, crs=crs, buffer_m=buffer_m
         )
     except IngestError as e:
         typer.secho(f"Error: {e}", fg="red", err=True)

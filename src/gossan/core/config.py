@@ -166,6 +166,17 @@ class TargetConfig(BaseModel):
     drill_labels: Literal["off", "evaluate", "train"] = "evaluate"
     #: Fewest cells holding a barren hole for them to be used at all.
     min_drill_negatives: int = Field(default=5, ge=1)
+    #: Regional magnetic grid (ingested as ``rasters/<name>.tif``; see ``gossan.target.magnetics``).
+    #: "derivatives" (default): when such a raster exists, the model gets the field and its derivatives
+    #: (local anomaly, vertical derivative, analytic signal, tilt angle, texture) instead of the bare
+    #: field. "field": the bare field only (any other raster is used the same way). "off": none.
+    magnetics: Literal["derivatives", "field", "off"] = "derivatives"
+    #: Name of the magnetic raster; None tries magnetics, nrcan_magnetics, mag, tmi, rtf, rmi.
+    magnetic_raster: str | None = None
+    #: Upward continuation height (metres) that defines the regional field subtracted for ``mag_local``...
+    magnetic_regional_m: float = Field(default=2000.0, gt=0)
+    #: ...and the window (metres) for ``mag_texture``.
+    magnetic_texture_m: float = Field(default=1000.0, gt=0)
     #: Gap (metres) left between held-out blocks and training cells. Neighbouring cells look alike,
     #: so without a gap the model is tested beside what it trained on and the scores flatter it:
     #: on the East Kootenay test area the effort-matched AUC went 0.63 (no gap), 0.56 (2 km), 0.52

@@ -69,13 +69,23 @@ def manual_instructions(reason: str) -> str:
     records = "\n".join(f"  - {p}: {url}" for p, (_, url) in PRODUCTS.items())
     return (
         f"NRCan geophysics could not be fetched automatically: {reason}\n"
-        "Download the grids manually from these open.canada.ca records (links to the "
-        "Geoscience Data Repository ZIPs), extract the GeoTIFF, and load each with "
-        "'gossan ingest':\n"
+        "NRCan's Geoscience Data Repository (https://geophysical-data.canada.ca/portal) is an interactive "
+        "extract tool and its web map service did not answer (checked 2026-10-11); neither offers a "
+        "documented download interface Gossan can call. So get the grid yourself:\n"
+        "  - Best for British Columbia: the province-wide compilation, residual total magnetic field "
+        "(and its first vertical derivative) at 100 m, BC Geological Survey Open File 2024-08 / "
+        "Geological Survey of Canada Open File 9222, https://doi.org/10.4095/p1xpddgswc\n"
+        "  - Otherwise the Canada-wide 200 m residual total field, product 'Canada - 200m - MAG - "
+        "Residual Total Field' (dapid 140) in the portal.\n"
+        "Records (links to the Geoscience Data Repository):\n"
         f"{records}\n"
-        '  gossan ingest <project> <grid.tif> --layer nrcan_magnetics '
+        "Take the area of your project plus a few kilometres. GeoTIFF is best; ER Mapper (.ers), GXF and "
+        "ASCII grids also load; a Geosoft .grd must be exported to GeoTIFF first (QGIS or Geosoft). Then:\n"
+        "  gossan ingest <project> <grid> --layer magnetics --buffer-m 5000 --crs <EPSG code, if the file has none> "
         '--source "NRCan Geoscience Data Repository" '
-        f'--license "{LICENSE}"'
+        f'--license "{LICENSE}"\n'
+        "and run 'gossan target': it builds magnetic derivative features (tilt angle, analytic signal, vertical "
+        "derivative, local anomaly, texture) from a raster named magnetics, nrcan_magnetics, mag, tmi, rtf or rmi."
     )
 
 

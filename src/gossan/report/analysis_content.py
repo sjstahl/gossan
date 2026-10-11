@@ -10,6 +10,7 @@ thresholds named in this module, and every conclusion that rests on few samples 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ from gossan.report.analysis_figures import (
     fault_chart,
     geology_map,
     ground_map,
+    magnetics_map,
     read_csv,
     tenure_map,
 )
@@ -324,6 +326,17 @@ def _sec_geology(project: Project, L: Loaded, assets: Path) -> list[Block]:
     fig = geology_map(project, assets / "geology_map.png")
     if fig:
         blocks.append(Figure(fig, "Figure 1. Bedrock geology, faults and known occurrences. Tinted units hold more occurrences than their area predicts.", 0.95))
+    mag = magnetics_map(project, assets / "magnetics.png")
+    if mag:
+        blocks.append(
+            Figure(
+                mag,
+                "Figure 1b. Regional magnetic field and its tilt angle, which is about +90 degrees over the top of a magnetic source, 0 over its edges, and shows "
+                "weak and strong sources alike. Compiled data (100 to 200 m cells): they show where magnetic ground changes over a few hundred metres, not detail "
+                "a claim-scale survey would give.",
+                0.95,
+            )
+        )
     if L.occ_geology is not None:
         for subset in ("metallic", "industrial"):
             t = L.occ_geology[(L.occ_geology["level"] == "unit") & (L.occ_geology["occurrences"] == subset) & (L.occ_geology["n_occurrences"] >= 1)]
@@ -685,6 +698,16 @@ NOTICES = {
 }
 
 
+def number_figures(report: AnalysisReport) -> None:
+    """Number the figures 1, 2, 3, ... in the order they appear, whatever their captions started with,
+    so adding or dropping a figure never leaves a gap or a repeat."""
+    n = 0
+    for block in report.blocks:
+        if isinstance(block, Figure):
+            n += 1
+            block.caption = f"Figure {n}. " + re.sub(r"^Figure \d+[a-z]?\. ", "", block.caption)
+
+
 def build_content(project: Project, assets: Path) -> AnalysisReport:
     """Assemble the report's blocks; figures are written under ``assets``."""
     L = load(project)
@@ -721,6 +744,7 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
         report.blocks += build()
         report.sections.append(name)
     report.inputs = _inputs(records)
+    number_figures(report)
     return report
 
 

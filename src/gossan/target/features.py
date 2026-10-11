@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -98,6 +99,7 @@ from gossan.analyze.occurrences import commodity_class
 from gossan.core.config import TargetConfig
 from gossan.core.project import Project
 from gossan.target.grid import Grid
+from gossan.target.magnetics import RASTER_NAMES, MagneticsError, derivatives
 
 LABEL_FEATURE = "dist_minfile"
 UNIT_FEATURE = "unit_favourability"
@@ -138,6 +140,8 @@ class FeatureStack:
     units: np.ndarray | None = None
     #: Datasets behind the geochemistry features (rgs, plus dem and bedrock_geology for catchments).
     geochem_inputs: list[str] = field(default_factory=list)
+    #: Name of the raster behind the ``mag_*`` features (a ``rasters/`` stem), if they were built.
+    magnetic_dataset: str | None = None
     #: Cells holding a barren drill hole (never an occurrence): the cross-validation's real negatives.
     barren_cells: np.ndarray | None = None
     #: The same cells when they also train the model as negatives (``drill_labels: train``).
@@ -469,13 +473,53 @@ def _effort_bias(candidates: dict[str, tuple[np.ndarray | None, str]]) -> np.nda
     return effort + EFFORT_FLOOR * effort.mean()
 
 
-def _rasters(project: Project, grid: Grid) -> dict[str, tuple[np.ndarray | None, str]]:
+def find_magnetic_raster(project: Project, cfg: TargetConfig) -> Path | None:
+    """``rasters/<name>.tif`` for the configured magnetic raster, or the first of the usual names."""
+    folder = project.root / "rasters"
+    for name in [cfg.magnetic_raster] if cfg.magnetic_raster else list(RASTER_NAMES):
+        if name and (folder / f"{name}.tif").is_file():
+            return folder / f"{name}.tif"
+    return None
+
+
+def _magnetics(project: Project, grid: Grid, cfg: TargetConfig) -> tuple[dict[str, tuple[np.ndarray | None, str]], str | None]:
+    """The ``mag_*`` features from the magnetic raster (see ``gossan.target.magnetics``), and the
+    raster's name. Empty unless ``magnetics: derivatives``; a reason is given when none can be built."""
+    if cfg.magnetics != "derivatives":
+        return {}, None
+    path = find_magnetic_raster(project, cfg)
+    if path is None:
+        wanted = f"rasters/{cfg.magnetic_raster}.tif" if cfg.magnetic_raster else "a magnetic grid in rasters/ (" + ", ".join(RASTER_NAMES[:2]) + ", ...)"
+        return {"magnetics": (None, f"no {wanted}: see 'gossan harvest --source nrcan_geophysics' for where to get one and 'gossan ingest' to add it")}, None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
+        with rasterio.open(path) as ds:
+            if ds.crs is None or not ds.crs.is_projected:
+                return {"magnetics": (None, f"{path.name} is not in a projected CRS in metres; re-ingest it with 'gossan ingest'")}, path.stem
+            field = ds.read(1, masked=True).astype(np.float64).filled(np.nan)
+            transform, crs, dx = ds.transform, ds.crs, abs(ds.transform.a)
+    try:
+        layers = derivatives(field, dx, regional_m=cfg.magnetic_regional_m, texture_m=cfg.magnetic_texture_m).layers
+    except MagneticsError as e:
+        return {"magnetics": (None, str(e))}, path.stem
+    out: dict[str, tuple[np.ndarray | None, str]] = {}
+    for name, array in layers.items():
+        dst = np.full(grid.shape, np.nan, dtype=np.float32)
+        reproject(
+            array.astype(np.float32), dst, src_transform=transform, src_crs=crs, dst_transform=grid.transform, dst_crs=grid.crs,
+            src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear,
+        )  # fmt: skip
+        out[name] = (grid.compact(dst), "")
+    return out, path.stem
+
+
+def _rasters(project: Project, grid: Grid, skip: frozenset[str] = frozenset()) -> dict[str, tuple[np.ndarray | None, str]]:
     out: dict[str, tuple[np.ndarray | None, str]] = {}
     folder = project.root / "rasters"
     for path in sorted(folder.glob("*.tif")) if folder.is_dir() else []:
         name = path.stem
-        if name.lower().startswith("aris_") or name == DEM_RASTER:
-            continue  # georeferenced report maps are images; the DEM feeds the terrain features
+        if name.lower().startswith("aris_") or name == DEM_RASTER or name in skip:
+            continue  # report maps are images; the DEM feeds the terrain features; a magnetic grid its derivatives
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
             with rasterio.open(path) as ds:
@@ -564,6 +608,8 @@ def input_datasets(stack: FeatureStack) -> list[str]:
     used = ["minfile"]
     for name in stack.names:
         used.append("rgs" if name.startswith("rgs_") else FEATURE_DATASETS.get(name, name))
+    if stack.magnetic_dataset and any(n.startswith("mag_") for n in stack.names):
+        used.append(stack.magnetic_dataset)
     if stack.units is not None:
         used.append("bedrock_geology")
     if stack.barren_cells is not None or stack.n_drill_positives_added:
@@ -588,6 +634,7 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
         "tenure_density": _tenure_density(project, grid, cfg),
         "aris_density": _aris_density(project, grid, cfg),
     }
+    mag_features, mag_dataset = _magnetics(project, grid, cfg)
     geochem_inputs: list[str] = []
     geochem = (
         _geochem_indices(project, grid, cfg, geochem_inputs)
@@ -598,8 +645,9 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
         **(effort if cfg.effort == "feature" else {}),
         **_structure(project, grid),
         **_terrain(project, grid),
+        **mag_features,
         **geochem,
-        **_rasters(project, grid),
+        **_rasters(project, grid, skip=frozenset({mag_dataset}) if mag_dataset else frozenset()),
     }
     skipped: dict[str, str] = {}
     bias = None
@@ -653,6 +701,7 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
         names, X, missing, skipped, positives, n_total, n_outside,
         bias=bias, effort_weights=effort_weights, use_label_feature=cfg.occurrence_distance,
         occurrence_class=cfg.occurrence_class, units=units, geochem_inputs=geochem_inputs,
+        magnetic_dataset=mag_dataset if mag_features and "magnetics" not in mag_features else None,
         barren_cells=barren if len(barren) else None,
         negatives=barren if (cfg.drill_labels == "train" and len(barren)) else None,
         n_drill_positives_added=n_drill_added, drill_note=drill_note,

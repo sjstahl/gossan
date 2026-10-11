@@ -10,7 +10,10 @@ from rioxarray.exceptions import NoDataInBounds, OneDimensionalRaster
 
 from gossan.core.project import Project
 
-RASTER_SUFFIXES = {".tif", ".tiff"}
+#: Gridded formats ``gossan ingest`` accepts (all read through GDAL). Geophysical grids arrive as
+#: GeoTIFF, ER Mapper (.ers, with its data file), GXF or ASCII grids; Geosoft binary .grd is not
+#: readable by GDAL and must be exported to GeoTIFF first (a Surfer .grd is read).
+RASTER_SUFFIXES = {".tif", ".tiff", ".ers", ".gxf", ".asc", ".grd", ".img"}
 RASTERS_DIR = "rasters"
 
 
@@ -23,16 +26,25 @@ def raster_path(project: Project, name: str) -> Path:
     return project.root / RASTERS_DIR / f"{name}.tif"
 
 
-def write_cog(project: Project, src: Path, dst: Path, buffer_m: float = 0.0) -> dict[str, object]:
+def write_cog(
+    project: Project, src: Path, dst: Path, buffer_m: float = 0.0, assign_crs: str | None = None
+) -> dict[str, object]:
     """Clip ``src`` to the project AOI (grown by ``buffer_m`` metres), reproject to the project CRS
     and write a COG at ``dst``.
 
-    Returns facts about the result for provenance. Raises ``RasterError`` if the raster
+    ``assign_crs`` (for example ``EPSG:3978``) is used when the file has no CRS of its own: many
+    geophysical grids do not. Returns facts about the result for provenance. Raises ``RasterError`` if the raster
     has no CRS or does not overlap the AOI.
     """
-    da = rioxarray.open_rasterio(src, masked=False)
+    try:
+        da = rioxarray.open_rasterio(src, masked=False)
+    except Exception as e:
+        hint = " A Geosoft .grd cannot be read: export it to GeoTIFF in QGIS or Geosoft." if src.suffix.lower() == ".grd" else ""
+        raise RasterError(f"cannot read {src.name} as a grid: {e}.{hint}") from e
     if da.rio.crs is None:
-        raise RasterError(f"{src.name} has no CRS; assign one (e.g. in QGIS) and retry")
+        if not assign_crs:
+            raise RasterError(f"{src.name} has no CRS: give it with --crs (for example EPSG:3978 or EPSG:4269), or assign one in QGIS")
+        da = da.rio.write_crs(assign_crs)
     source_crs = da.rio.crs.to_string()
     if da.rio.nodata is None:  # the data standard requires nodata to be defined
         da = da.rio.write_nodata(_default_nodata(da.dtype))
@@ -60,6 +72,7 @@ def write_cog(project: Project, src: Path, dst: Path, buffer_m: float = 0.0) -> 
         "nodata": float(da.rio.nodata),
         "resampling": "bilinear" if resampling == 1 else "nearest",
         "aoi_buffer_m": buffer_m,
+        "crs_assigned": assign_crs if assign_crs and source_crs == assign_crs else None,
         "format": "COG",
     }
 
