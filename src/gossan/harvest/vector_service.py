@@ -29,6 +29,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 
+from gossan.core.rawstore import store_raw
 from gossan.harvest.base import Connector, SearchItem
 
 USER_AGENT = "gossan"
@@ -80,10 +81,10 @@ class VectorServiceConnector(Connector):
         for item in items:
             retrieved_at = datetime.now(UTC)
             result = self.download(item)
-            # Timestamped name: originals in raw/ are never overwritten.
-            path = raw / f"{self.name}_{retrieved_at:%Y%m%dT%H%M%S%fZ}.{result.extension}"
-            with path.open("xb") as f:  # "x": fail rather than overwrite
-                f.write(result.content)
+            # Timestamped name; originals are never overwritten, and an identical download reuses
+            # the file already there (see gossan.core.rawstore).
+            stored = store_raw(raw, self.name, result.extension, result.content, retrieved_at)
+            path = stored.path
             self.project.provenance.log(
                 dataset=self.layer,
                 source=self.source,
@@ -96,6 +97,8 @@ class VectorServiceConnector(Connector):
                     **result.parameters,
                     "n_features": result.n_features,
                     "file": f"raw/{self.name}/{path.name}",
+                    "sha256": stored.sha256,
+                    "unchanged": stored.unchanged,
                 },
             )
             files.append(path)

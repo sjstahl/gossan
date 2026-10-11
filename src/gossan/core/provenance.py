@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from gossan import __version__
+from gossan.core.revision import code_revision
 
 PROVENANCE_FILE = "provenance.jsonl"
 
@@ -27,6 +28,8 @@ class ProvenanceRecord(BaseModel):
     operation: str = Field(min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     gossan_version: str = __version__
+    #: Git revision of the code that made this record (see ``gossan.core.revision``), if known.
+    gossan_revision: str | None = Field(default_factory=code_revision)
 
 
 class ProvenanceLog:

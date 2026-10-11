@@ -44,12 +44,28 @@ def test_harvest_minfile(aoi_file, wfs):
     assert write.parameters["n_features"] == 2
 
 
-def test_harvest_twice_keeps_all_originals(aoi_file, wfs):
+def test_harvest_twice_reuses_an_identical_download_and_logs_both(aoi_file, wfs):
     project = make_project(aoi_file)
     runner.invoke(app, ["harvest", "demo"])
     first = list((project.raw_dir / "minfile").glob("*.geojson"))
     runner.invoke(app, ["harvest", "demo"])
-    assert len(list((project.raw_dir / "minfile").glob("*.geojson"))) == len(first) + 1
+    assert list((project.raw_dir / "minfile").glob("*.geojson")) == first  # nothing new on disk
+    fetches = [r for r in project.provenance.read() if r.operation == "fetch" and r.dataset == "minfile"]
+    assert len(fetches) == 2  # but both checks are on record
+    assert [f.parameters["unchanged"] for f in fetches] == [False, True]
+    assert fetches[0].parameters["file"] == fetches[1].parameters["file"]
+    assert len(fetches[0].parameters["sha256"]) == 64
+
+
+def test_a_changed_download_is_kept_beside_the_original(aoi_file, wfs):
+    project = make_project(aoi_file)
+    runner.invoke(app, ["harvest", "demo", "--source", "minfile"])
+    (original,) = (project.raw_dir / "minfile").glob("*.geojson")
+    before = original.read_bytes()
+    wfs.responses["pub:WHSE_MINERAL_TENURE.MINFIL_MINERAL_FILE"] = "empty_wfs.geojson"  # the source changed
+    runner.invoke(app, ["harvest", "demo", "--source", "minfile"])
+    assert len(list((project.raw_dir / "minfile").glob("*.geojson"))) == 2
+    assert original.read_bytes() == before  # originals are never modified
 
 
 def test_harvest_unknown_source(aoi_file):

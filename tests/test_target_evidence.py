@@ -326,3 +326,34 @@ def test_target_command_options_set_minimum_size_and_smoothing(project):
     assert cv["capture_top5_smoothed_mean"] is not None
     targets = gpd.read_file(project.root / "target" / "targets.gpkg", layer="targets_top")
     assert len(targets) >= 1 and (targets["area_ha"] >= 2.0).all()
+
+
+# --- the gap between test blocks and training cells ---------------------------------------------
+
+
+def test_automatic_buffer_is_a_fraction_of_the_block_capped_at_two_km():
+    from gossan.target.cv import effective_buffer
+
+    assert effective_buffer(None, 14_000.0) == 2000.0  # 15% would be 2.1 km: capped
+    assert effective_buffer(None, 4000.0) == pytest.approx(600.0)
+    assert effective_buffer(0.0, 14_000.0) == 0.0  # an explicit 0 switches it off
+    assert effective_buffer(750.0, 14_000.0) == 750.0
+
+
+def test_cv_report_records_the_block_and_buffer_and_the_buffer_costs_score(project):
+    from gossan.target.run import run_target
+
+    base = evidence_cfg(effort="ignore", n_bags=6, folds=3)
+    auto = run_target(Project(project.root), base).cv
+    assert auto["buffer_m"] == pytest.approx(min(2000.0, 0.15 * auto["block_size_m"]))
+    none = run_target(Project(project.root), base.model_copy(update={"cv_buffer_m": 0.0})).cv
+    assert none["buffer_m"] == 0.0 and none["block_size_m"] == auto["block_size_m"]
+    cv_json = json.loads((project.root / "target" / "cv_report.json").read_text())
+    assert cv_json["buffer_m"] == 0.0  # the last run's report
+
+
+def test_target_command_option_sets_the_gap_and_says_so(project):
+    result = runner.invoke(app, ["target", "demo", "--folds", "3", "--cv-buffer-m", "250"])
+    assert result.exit_code == 0, result.output
+    assert "0.25 km gap between test blocks and training cells" in result.output
+    assert json.loads((project.root / "target" / "cv_report.json").read_text())["buffer_m"] == 250.0

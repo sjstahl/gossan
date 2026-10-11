@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from gossan import __version__
 from gossan.core.provenance import ProvenanceLog, ProvenanceRecord
+from gossan.core.revision import code_revision
 
 FIELDS = {
     "dataset": "minfile",
@@ -27,9 +28,10 @@ def test_append_and_read_roundtrip(tmp_path):
     first = json.loads(lines[0])
     assert set(first) == {
         "dataset", "source", "identifier", "url", "retrieved_at",
-        "license", "operation", "parameters", "gossan_version",
+        "license", "operation", "parameters", "gossan_version", "gossan_revision",
     }  # fmt: skip
     assert first["gossan_version"] == __version__
+    assert first["gossan_revision"] == code_revision()
     assert [r.operation for r in log.read()] == ["fetch", "write_layer"]
 
 

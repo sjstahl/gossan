@@ -1,0 +1,31 @@
+name: tests
+
+# Runs the lint and the full test suite from the locked dependency set (uv.lock), so a green run
+# means "these exact versions pass". Refresh the lock deliberately with `uv lock --upgrade` and let
+# this workflow vouch for the new set before merging it.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the code revision stamp (gossan.core.revision) reads git history
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install the locked environment
+        run: uv sync --locked --extra dev
+      - name: Lint
+        run: uv run ruff check src tests scripts
+      - name: Test
+        run: uv run pytest -q

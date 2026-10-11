@@ -162,6 +162,7 @@ def run_target(
             for k in (
                 "n_folds_scored", "auc_mean", "auc_std", "auc_effort_matched_mean", "auc_effort_matched_std",
                 "capture_top5_mean", "capture_top5_std", "capture_top5_smoothed_mean", "capture_top5_smoothed_std", "skipped",
+                "block_size_m", "buffer_m",
             )
         },
         "top_percentile": cfg.top_percentile,

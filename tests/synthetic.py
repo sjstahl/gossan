@@ -27,7 +27,7 @@ def small_cfg(**kw) -> TargetConfig:
     base = {
         "resolution_m": 100.0, "n_bags": 4, "n_trees": 15, "folds": 3, "seed": 1,
         "effort": "feature", "occurrence_distance": True, "geochem_features": "elements",
-        "smooth_m": 0.0, "min_target_ha": 0.0,
+        "smooth_m": 0.0, "min_target_ha": 0.0, "cv_buffer_m": 0.0,
     }  # fmt: skip
     return TargetConfig(**{**base, **kw})
 

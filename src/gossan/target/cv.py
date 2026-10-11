@@ -43,6 +43,18 @@ from gossan.target.outputs import smooth_scores
 CAPTURE_FRACTION = 0.05
 
 
+AUTO_BUFFER_FRACTION = 0.15
+AUTO_BUFFER_MAX_M = 2000.0
+
+
+def effective_buffer(cfg_buffer_m: float | None, block_size_m: float) -> float:
+    """The gap used between test blocks and training cells: ``cfg_buffer_m`` if set, else
+    ``AUTO_BUFFER_FRACTION`` of the block edge, at most ``AUTO_BUFFER_MAX_M``."""
+    if cfg_buffer_m is not None:
+        return cfg_buffer_m
+    return min(AUTO_BUFFER_MAX_M, AUTO_BUFFER_FRACTION * block_size_m)
+
+
 def default_block_size(grid: Grid, resolution_floor: float = 5.0) -> float:
     """A quarter of the AOI's shorter side, at least ``resolution_floor`` cells."""
     minx, miny, maxx, maxy = grid.bounds
@@ -104,6 +116,8 @@ def fold_metrics(
 class CvResult:
     folds: list[dict] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    block_size_m: float | None = None
+    buffer_m: float | None = None
 
     def summary(self) -> dict[str, object]:
         out: dict[str, object] = {"n_folds_scored": len(self.folds), "skipped": self.skipped, "folds": self.folds}
@@ -112,6 +126,8 @@ class CvResult:
             out[f"{key}_mean"] = float(np.mean(vals)) if vals else None
             out[f"{key}_std"] = float(np.std(vals)) if vals else None
         out["capture_expected_at_random"] = CAPTURE_FRACTION
+        out["block_size_m"] = self.block_size_m
+        out["buffer_m"] = self.buffer_m
         return out
 
 
@@ -124,13 +140,15 @@ def run_cv(stack: FeatureStack, grid: Grid, cfg: TargetConfig, y: np.ndarray) ->
         result.skipped.append(f"{n_pos} occurrences are too few for cross-validation")
         return result
     block = cfg.block_size_m or default_block_size(grid)
+    buffer_m = effective_buffer(cfg.cv_buffer_m, block)
+    result.block_size_m, result.buffer_m = block, buffer_m
     blocks = make_blocks(grid, block)
     if len(np.unique(blocks)) < n_splits:
         result.skipped.append(f"only {len(np.unique(blocks))} spatial block(s) for {n_splits} folds")
         return result
     xy = grid.xy
     for i, (train, test) in enumerate(spatial_folds(blocks, y, n_splits, cfg.seed), start=1):
-        train = drop_near(train, test, xy, cfg.cv_buffer_m)
+        train = drop_near(train, test, xy, buffer_m)
         train_pos = train[y[train] == 1]
         if len(train_pos) < 2 or int(y[test].sum()) == 0:
             result.skipped.append(f"fold {i}: {len(train_pos)} training and {int(y[test].sum())} test occurrences")

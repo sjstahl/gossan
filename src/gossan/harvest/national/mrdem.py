@@ -31,6 +31,7 @@ from rasterio.io import MemoryFile
 from rasterio.windows import from_bounds
 
 from gossan.core.raster import RASTERS_DIR, raster_path, write_cog
+from gossan.core.rawstore import store_raw
 from gossan.harvest.base import Connector, SearchItem
 
 MRDEM_URL = "https://canelevation-dem.s3.ca-central-1.amazonaws.com/mrdem-30/mrdem-30-dtm.tif"
@@ -69,9 +70,8 @@ class MrdemConnector(Connector):
         for item in items:
             retrieved_at = datetime.now(UTC)
             data = self._read_window(item.url, tuple(item.parameters["bounds_epsg3979"]))
-            path = raw / f"mrdem30_{retrieved_at:%Y%m%dT%H%M%S%fZ}.tif"
-            with path.open("xb") as f:  # "x": fail rather than overwrite an original
-                f.write(data)
+            stored = store_raw(raw, "mrdem30", "tif", data, retrieved_at)
+            path = stored.path
             self.project.provenance.log(
                 dataset=self.layer,
                 source=self.source,
@@ -80,7 +80,13 @@ class MrdemConnector(Connector):
                 retrieved_at=retrieved_at,
                 license=self.license,
                 operation="fetch",
-                parameters={**item.parameters, "bytes": len(data), "file": f"raw/{self.name}/{path.name}"},
+                parameters={
+                    **item.parameters,
+                    "bytes": len(data),
+                    "file": f"raw/{self.name}/{path.name}",
+                    "sha256": stored.sha256,
+                    "unchanged": stored.unchanged,
+                },
             )
             files.append(path)
         return files

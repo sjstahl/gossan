@@ -200,3 +200,35 @@ Each phase ends when its **done-when** check passes and tests are green.
 - **Georef accuracy** on old maps (NAD27 vs NAD83, hand-drawn grids, distorted scans) — record datum explicitly; RMS thresholds in config.
 - **Client confidentiality:** client-supplied legacy data stays local/private; never mixed into shared caches.
 - **Scope creep:** vectorization and full NLP search stay in Phase 7 until digitization is earning.
+
+---
+
+## 12. Status (October 2026) and how the build diverged from the plan
+
+The phases above were built in order, then extended. This section is the current truth; sections 1 to 11 are the original intent.
+
+**Built and tested (441+ tests):**
+
+| Plan | State |
+|---|---|
+| 1 Foundation, 2 BC harvest | Done and much wider: **25 BC sources** (occurrences, tenure, ARIS, NoW, RGS; bedrock geology, faults, Quaternary cover, mineral potential; MINFILE production and inventory; historic notices, mine permits, crown grants; parks, conservancies, reserves, treaty land; roads, power lines; NRCan MRDEM-30 terrain). Identical re-downloads are not stored twice (`core/rawstore.py`). |
+| 3 Leads | Done (BC and US scoring, drilling indicator). Tenure *change* detection is still missing: only the current snapshot is used. |
+| 4 Digitize | Done through review and drillhole tables. Its outputs do not yet feed the model. |
+| 5 Spectral | **Not built.** Only scene search and download (EMIT, EnMAP, ASTER) exist; `src/gossan/spectral/` is empty. |
+| 6 Targeting | Done and reworked (below). |
+| 7 Report | Pitch pack PDF, short Word report, and the new **analysis report** (PDF and Word from one content model). |
+
+**Added beyond the plan:**
+
+- `gossan analyze` (`src/gossan/analyze/`): data inventory; RGS geochemistry (element quality tiers with below-detection handling, Fe-Mn correction, pathfinder indices, compositional PCA, robust multivariate anomalies); DEM stream catchments (own D8 routing, no GPL hydrology dependency); known occurrences against bedrock units and faults; per-target decision table (ground status, tenure, exclusions, access, history).
+- Target model: evidence features (faults, contacts, intrusions, unit age, terrain, geochemistry, host-unit favourability) instead of exploration effort; occurrence classes; automatic CV buffer; effort-matched AUC; minimum target size and optional smoothing.
+- US jurisdiction (MRDS, BLM claims, Nevada notices).
+- Provenance carries the code revision; `uv.lock` pins the tested dependency set; `scripts/backup_repo.py` writes verified git bundles; CI workflow in `.github/workflows/`.
+
+**Findings that shaped the defaults (East Kootenay test area, 23 metallic occurrences; treat as indicative):**
+
+- Using exploration effort (ARIS and tenure density) as features gives a high plain AUC (0.94) that mostly measures where people explored; against equally explored ground it is about 0.6, the same as the evidence-only model. Effort is off by default.
+- Cross-validation without a gap between test blocks and training cells flatters the model: effort-matched AUC 0.63 with no gap, 0.56 at 2 km, 0.52 at 5 km, chance at 10 km. The model's skill is local (it extends known camps better than it finds new ones far from them).
+- Correcting geochemistry for lithology or dilution lowered the indices' ability to pick out catchments with known occurrences, because host units carry the mineralization there. Both are opt-in.
+
+**Next (see the review of October 2026):** tenure change detection; regional magnetics as features; basic spectral indices; leads combined with targets; a knowledge-driven score beside the random forest; client deliverables (QGIS project, interactive map, Word template); validation on larger BC areas.

@@ -68,11 +68,22 @@ From the Gossan repository folder, with the environment active:
 ```powershell
 cd C:\Users\<you>\OneDrive\Desktop\Gossan
 pip install -e .
-pip install reportlab
 ```
 
-- `pip install -e .` installs Gossan and its dependencies in *editable* mode, so pulling new code takes effect without reinstalling.
-- `reportlab` builds the PDF pitch pack (`gossan report`). It is not yet listed in `pyproject.toml`, so install it explicitly.
+`pip install -e .` installs Gossan and its dependencies in *editable* mode, so pulling new code takes effect without reinstalling. It takes the newest compatible version of each library.
+
+### Reproducible install (recommended for client work)
+
+`uv.lock` pins the exact version of every dependency (119 packages) that the test suite passes on. Installing from it means a re-run months later uses the same libraries:
+
+```powershell
+pip install uv
+uv sync --locked --extra dev
+```
+
+Every record in `provenance.jsonl` also carries `gossan_version` and `gossan_revision` (the git commit of the code, with `+dirty` if tracked files had uncommitted changes), so an output can be tied to the code that made it. If you run an installed copy that is not a git checkout, set `GOSSAN_REVISION` to a label of your choice and it is recorded instead.
+
+To update the lock deliberately: `uv lock --upgrade`, then run the tests before committing the new `uv.lock`.
 
 ### Optional extras
 
@@ -107,6 +118,16 @@ Optionally, if you installed the `dev` extra, run the tests (no network access n
 ```powershell
 pytest
 ```
+
+### Back up the repository
+
+The repository lives in OneDrive, which is not a backup of a `.git` folder. Write a verified, full-history copy outside it:
+
+```powershell
+python scripts\backup_repo.py
+```
+
+By default this writes a `gossan-<date>-<time>-<hash>.bundle` file to `~\gossan-backups` (or `$GOSSAN_BACKUP_DIR`, or a folder you name) and keeps the newest ten. Run it after committing; it says so if tracked files have uncommitted changes, which are not in a bundle. Restore with `git clone <bundle> Gossan-restored`.
 
 ---
 

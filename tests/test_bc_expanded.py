@@ -126,10 +126,12 @@ def test_harvest_dem(project, wfs):
     assert write.identifier == "rasters/dem.tif"
 
 
-def test_reharvest_keeps_raw_originals(project, wfs):
+def test_reharvest_of_an_unchanged_dem_reuses_the_raw_file(project, wfs):
     for _ in range(2):
         assert runner.invoke(app, ["harvest", "demo", "--source", "dem"]).exit_code == 0
-    assert len(list((project.raw_dir / "dem").glob("mrdem30_*.tif"))) == 2
+    assert len(list((project.raw_dir / "dem").glob("mrdem30_*.tif"))) == 1
+    fetches = [r for r in project.provenance.read() if r.operation == "fetch" and r.dataset == "dem"]
+    assert [f.parameters["unchanged"] for f in fetches] == [False, True]
 
 
 def test_plain_harvest_runs_new_sources_without_failing_on_empty_layers(project, wfs):

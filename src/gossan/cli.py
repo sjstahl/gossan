@@ -903,6 +903,15 @@ def target_cmd(
             "the old behaviour) or bias (weight background sampling). Default: target.effort.",
         ),
     ] = None,
+    cv_buffer_m: Annotated[
+        float | None,
+        typer.Option(
+            "--cv-buffer-m", min=0,
+            help="Gap (metres) between held-out blocks and training cells in cross-validation. Default: "
+            "target.cv_buffer_m (automatic: 15% of the block edge, at most 2 km). 0 switches the gap off, "
+            "which flatters the scores.",
+        ),
+    ] = None,
     min_target_ha: Annotated[
         float | None,
         typer.Option(
@@ -943,7 +952,7 @@ def target_cmd(
         for k, v in {
             "resolution_m": resolution, "n_bags": n_bags, "folds": folds, "seed": seed,
             "occurrence_class": occurrence_class, "effort": effort,
-            "min_target_ha": min_target_ha, "smooth_m": smooth_m,
+            "min_target_ha": min_target_ha, "smooth_m": smooth_m, "cv_buffer_m": cv_buffer_m,
         }.items()
         if v is not None
     }  # fmt: skip
@@ -987,6 +996,8 @@ def target_cmd(
                     f"  effort-matched AUC {r.cv['auc_effort_matched_mean']:.2f} +/- {r.cv['auc_effort_matched_std']:.2f} "
                     "(occurrences vs equally explored ground; 0.5 = no skill)"
                 )
+        if r.cv.get("buffer_m") is not None:
+            typer.echo(f"  blocks {r.cv['block_size_m'] / 1000:.1f} km, {r.cv['buffer_m'] / 1000:.2f} km gap between test blocks and training cells")
         for note in r.cv["skipped"]:
             typer.secho(f"  CV: {note}", fg="yellow")
     smoothed = f" of the score smoothed over {r.cfg.smooth_m:g} m" if r.cfg.smooth_m else ""

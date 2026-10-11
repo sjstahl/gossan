@@ -103,7 +103,12 @@ class TargetConfig(BaseModel):
     #: shorter side) and the gap left between test blocks and training cells.
     folds: int = Field(default=5, ge=2)
     block_size_m: float | None = Field(default=None, gt=0)
-    cv_buffer_m: float = Field(default=0.0, ge=0)
+    #: Gap (metres) left between held-out blocks and training cells. Neighbouring cells look alike,
+    #: so without a gap the model is tested beside what it trained on and the scores flatter it:
+    #: on the East Kootenay test area the effort-matched AUC went 0.63 (no gap), 0.56 (2 km), 0.52
+    #: (5 km), 0.45 (10 km). None (default): automatic, 15% of the block edge but at most 2 km.
+    #: 0 switches the gap off.
+    cv_buffer_m: float | None = Field(default=None, ge=0)
     #: Fewest known occurrences inside the AOI that a model may be trained on.
     min_positives: int = Field(default=10, ge=3)
     seed: int = 42

@@ -447,7 +447,13 @@ def _sec_targets(project: Project, L: Loaded, assets: Path) -> list[Block]:
         rows.append(["Top-5% capture", f"{cv['capture_top5_mean']:.0%} ± {cv['capture_top5_std']:.0%}", "share of held-out occurrences in the top 5% of cells (chance: 5%)"])
         if cv.get("capture_top5_smoothed_mean") is not None:
             rows.append(["Top-5% capture, smoothed", f"{cv['capture_top5_smoothed_mean']:.0%} ± {cv['capture_top5_smoothed_std']:.0%}", f"same, choosing cells on the score smoothed over {grid.get('smooth_m', 0):g} m"])
-        blocks.append(Table(rows, [1.5, 1.4, 3.6], f"{cv['n_folds_scored']} spatial folds; whole blocks of ground are held out so the model is tested on places it has not seen."))
+        gap = cv.get("buffer_m")
+        gap_text = (
+            f" A {gap / 1000:.1f} km gap separates each test block from the training cells so neighbours cannot leak."
+            if gap
+            else " No gap separates test blocks from training cells, so scores near block edges are optimistic."
+        )
+        blocks.append(Table(rows, [1.5, 1.4, 3.6], f"{cv['n_folds_scored']} spatial folds; whole blocks of ground are held out so the model is tested on places it has not seen.{gap_text}"))
         blocks.append(Para(
             "Occurrences sit where people explored, so a model can score well just by predicting exploration. The effort-matched figure weights each unlabeled cell by how heavily "
             "it was explored, and is the fairer test of whether the map finds deposits rather than camps.", small=True))

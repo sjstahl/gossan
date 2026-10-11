@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gossan"
-version = "0.1.0"
+version = "0.2.0"
 description = "Internal tool for SJS Geospatial Analytics: claim polygons and legacy files to client-ready deliverables."
 requires-python = ">=3.11"
 dependencies = [

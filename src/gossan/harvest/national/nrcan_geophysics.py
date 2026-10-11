@@ -43,6 +43,7 @@ from urllib.parse import urlencode
 import geopandas as gpd
 
 from gossan.core.raster import RASTERS_DIR, raster_path, write_cog
+from gossan.core.rawstore import store_raw
 from gossan.harvest.base import Connector, SearchItem
 
 LICENSE = "Open Government Licence - Canada"
@@ -135,9 +136,8 @@ class NrcanGeophysicsConnector(Connector):
                 reason = f"the service did not return a GeoTIFF ({snippet!r})"
                 raise ManualDownloadRequired(manual_instructions(reason))
             product = item.parameters["product"]
-            path = raw / f"{product}_{retrieved_at:%Y%m%dT%H%M%S%fZ}.tif"
-            with path.open("xb") as f:  # "x": fail rather than overwrite an original
-                f.write(data)
+            stored = store_raw(raw, product, "tif", data, retrieved_at)
+            path = stored.path
             self.project.provenance.log(
                 dataset=product,
                 source=self.source,
@@ -146,7 +146,12 @@ class NrcanGeophysicsConnector(Connector):
                 retrieved_at=retrieved_at,
                 license=self.license,
                 operation="fetch",
-                parameters={"bytes": len(data), "file": f"raw/{self.name}/{path.name}"},
+                parameters={
+                    "bytes": len(data),
+                    "file": f"raw/{self.name}/{path.name}",
+                    "sha256": stored.sha256,
+                    "unchanged": stored.unchanged,
+                },
             )
             files.append(path)
         return files
