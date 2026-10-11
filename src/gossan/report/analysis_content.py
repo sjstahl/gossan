@@ -758,7 +758,7 @@ def _sec_method(project: Project, L: Loaded) -> list[Block]:
             f"Catchments: depression-filled D8 flow routing over the terrain model at {g.catchment_resolution_m:g} m; samples snapped to the nearest stream cell within {g.snap_m:g} m.",
             (
                 f"Model: {t.n_bags} bags of {t.n_trees}-tree forests, {t.unlabeled_ratio:g} unlabeled cells per positive, {t.folds}-fold spatial block cross-validation. "
-                f"Exploration effort mode: {t.effort}; positives: {t.occurrence_class} occurrences; seed {t.seed}."
+                f"Exploration effort mode: {t.effort}; positives: {(L.target_grid or {}).get('occurrence_class', t.occurrence_class)} occurrences; seed {t.seed}."
             ),
             (
                 "Model features describe the ground (faults, contacts, intrusions, unit age, terrain, geochemistry, host-unit favourability) rather than where exploration happened, "

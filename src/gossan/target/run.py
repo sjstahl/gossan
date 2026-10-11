@@ -73,7 +73,7 @@ def run_target(
     n_pos = len(stack.positives)
     if n_pos < cfg.min_positives:
         raise TargetError(
-            f"{n_pos} known {'' if cfg.occurrence_class == 'all' else cfg.occurrence_class + ' '}occurrence(s) fall in the AOI's {grid.resolution:g} m cells "
+            f"{n_pos} known {'' if stack.occurrence_class == 'all' else stack.occurrence_class + ' '}occurrence(s) fall in the AOI's {grid.resolution:g} m cells "
             f"({stack.n_occurrences_total} in the layer, {stack.n_occurrences_outside} outside the "
             f"AOI); at least {cfg.min_positives} are needed (target.min_positives). Use a larger "
             "AOI or a coarser --resolution (several occurrences in one cell count once)"
@@ -152,7 +152,9 @@ def run_target(
         "smooth_m": cfg.smooth_m,
         "min_target_ha": cfg.min_target_ha,
         "n_targets_dropped_small": n_dropped,
-        "occurrence_class": cfg.occurrence_class,
+        "occurrence_class": stack.occurrence_class,
+        "occurrence_class_requested": cfg.occurrence_class,
+        "occurrence_class_note": stack.class_note,
         "effort": cfg.effort,
         "drill_labels": cfg.drill_labels,
         "n_barren_drill_cells": 0 if stack.barren_cells is None else len(stack.barren_cells),
@@ -174,7 +176,7 @@ def run_target(
         "grid": [grid.height, grid.width],
         "n_cells_in_aoi": grid.n_cells,
         "n_positives": n_pos,
-        "occurrence_class": cfg.occurrence_class,
+        "occurrence_class": stack.occurrence_class,
         "effort": cfg.effort,
         "geochem_features": cfg.geochem_features,
         "features_used": stack.model_names,

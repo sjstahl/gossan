@@ -177,7 +177,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         best_idx, best_val, n_anom, best_elems = [], [], [], []
         for near in _near(t, scores, GEOCHEM_RADIUS_M):
             n_anom.append(int(near["multivariate_anomaly"].astype(bool).sum()) if len(near) else 0)
-            if near.empty or not idx_cols:
+            if near.empty or not idx_cols or near[idx_cols].isna().all().all():  # samples with no usable index (too few elements measured)
                 best_idx.append(None)
                 best_val.append(np.nan)
                 best_elems.append(None)

@@ -247,4 +247,8 @@ The phases above were built in order, then extended. This section is the current
 
 - Branded Word reports (`report/branding.py`, `branding:` in `project.yaml`, `gossan template`): company, logo (header and cover, with alt text), accent colour, fonts, footer text, contact, optional cover page, and an optional company `.docx` template whose styles, page setup, header and footer the report is built inside (missing styles are supplied; its body text is dropped). The draft/INTERNAL footer line and page number are always added to every footer, the cover's included, and the banner stays in the body, so branding cannot remove the Access Only marking. A missing or unreadable logo or template stops the Word report with a message. Applies to the analysis report and the simple site report; **PDF reports are not branded**, and the Word output was verified by reading the files back, not in Word (none was installed).
 
+- Validation on larger BC areas (`scripts/validate_regions.py`, results in `docs/validation/`): four areas of 7,000 to 16,000 km² (Boundary, East Kootenay wide, Quesnel, Stewart). Forest effort-matched AUC 0.55 to 0.65; the unfitted knowledge score matched or beat it in three of four areas; metallic-only labels helped in three of four; harvest and all steps worked at up to 1.6 M cells (2.2 GB peak, ~20 min for two model runs); one bug found and fixed (decision table when no sample index is usable). Findings and limits in `docs/validation/bc_regions_2026-10.md`.
+
+**Done:** the ten review items. Open questions from the validation: whether `occurrence_class: metallic` should be the BC default, and whether the generic knowledge weights should change.
+
 **Next (see the review of October 2026):** validation on larger BC areas.

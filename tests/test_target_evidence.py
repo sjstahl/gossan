@@ -177,11 +177,29 @@ def test_effort_modes(project, grid):
 
 
 def test_occurrence_classes(project, grid):
-    everything = build_stack(project, grid, evidence_cfg())
+    everything = build_stack(project, grid, evidence_cfg(occurrence_class="all"))
     metallic = build_stack(project, grid, evidence_cfg(occurrence_class="metallic"))
     industrial = build_stack(project, grid, evidence_cfg(occurrence_class="industrial"))
     assert 0 < len(industrial.positives) < len(metallic.positives) < len(everything.positives)
     assert set(metallic.positives).isdisjoint(industrial.positives) or len(everything.positives) < 60
+
+
+def test_auto_trains_on_metallic_occurrences_where_it_can_and_says_why_it_falls_back(project, grid, tmp_path, monkeypatch):
+    auto = build_stack(project, grid, evidence_cfg())  # the default
+    metallic = build_stack(project, grid, evidence_cfg(occurrence_class="metallic"))
+    assert TargetConfig().occurrence_class == "auto" and auto.occurrence_class == "metallic" and auto.class_note == ""
+    assert list(auto.positives) == list(metallic.positives)
+    few = build_stack(project, grid, evidence_cfg(min_positives=len(metallic.positives) + 1))  # too few metallic: all of them are used instead
+    assert few.occurrence_class == "all" and "only" in few.class_note and "all occurrences are used" in few.class_note
+    explicit = build_stack(project, grid, evidence_cfg(occurrence_class="industrial"))
+    assert explicit.occurrence_class == "industrial" and explicit.class_note == ""  # an explicit choice is never second-guessed
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.chdir(other)
+    plain = build_project(other, n_occ=40)  # no deposit-type codes at all
+    g = build_grid(plain.read_aoi(), CRS, 100.0, 10**6)
+    stack = build_stack(plain, g, evidence_cfg())
+    assert stack.occurrence_class == "all" and "no deposit-type codes" in stack.class_note
 
 
 def test_occurrence_class_needs_deposit_codes(tmp_path):

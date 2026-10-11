@@ -1,0 +1,336 @@
+{
+  "region": "stewart",
+  "box_deg": [
+    -130.5,
+    55.7,
+    -129.3,
+    56.6
+  ],
+  "area_km2": 7468,
+  "crs": "EPSG:32609",
+  "harvest": {
+    "counts": {
+      "minfile": 741,
+      "mto_tenure": 1572,
+      "aris_index": 1232,
+      "drilling_notices": 108,
+      "rgs": 519,
+      "bedrock_geology": 43,
+      "faults": 432,
+      "quaternary_cover": 6,
+      "mineral_potential": 9,
+      "minfile_production": 55,
+      "minfile_inventory": 935,
+      "rgs_survey_areas": 4,
+      "historic_notices": 818,
+      "permitted_mine_areas": 235,
+      "major_mine_areas": 4,
+      "crown_grants": 1202,
+      "parks_protected": 2,
+      "conservancies": 1,
+      "national_parks": 0,
+      "indian_reserves": 0,
+      "treaty_lands": 0,
+      "reserve_sites": 11,
+      "roads": 1795,
+      "transmission_lines": 7,
+      "dem": 1
+    },
+    "failures": {}
+  },
+  "peak_mb_after_harvest": 2233,
+  "models": [
+    {
+      "label": "default",
+      "overrides": {},
+      "n_cells": 746810,
+      "resolution_m": 100.0,
+      "n_positives": 741,
+      "n_occurrences_in_layer": 741,
+      "features": [
+        "dist_fault",
+        "dist_thrust",
+        "dist_contact",
+        "dist_intrusive",
+        "unit_age_ma",
+        "elevation",
+        "slope",
+        "relief",
+        "rgs_idx_sediment_hosted_zn_pb",
+        "rgs_idx_polymetallic_vein",
+        "rgs_idx_cu_porphyry_skarn",
+        "rgs_idx_gold_vein",
+        "rgs_idx_rare_earth_carbonatite",
+        "rgs_pc1",
+        "rgs_pc2",
+        "rgs_pc3",
+        "unit_favourability"
+      ],
+      "features_skipped": {
+        "tenure_density": "exploration effort: not used (effort: ignore)",
+        "aris_density": "exploration effort: not used (effort: ignore)",
+        "magnetics": "no a magnetic grid in rasters/ (magnetics, nrcan_magnetics, ...): see 'gossan harvest --source nrcan_geophysics' for where to get one and 'gossan ingest' to add it",
+        "rasters": "no rasters in rasters/"
+      },
+      "cv": {
+        "n_folds_scored": 5,
+        "auc_mean": 0.7433235294979198,
+        "auc_std": 0.03791671810898548,
+        "auc_effort_matched_mean": 0.6151779665943962,
+        "auc_effort_matched_std": 0.03482221660432456,
+        "capture_top5_mean": 0.11176435150161275,
+        "capture_top5_std": 0.028257539938517828,
+        "auc_vs_barren_mean": null,
+        "n_barren_cells": 0,
+        "block_size_m": 18975.0,
+        "buffer_m": 2000.0
+      },
+      "n_targets": 109,
+      "knowledge": {
+        "available": true,
+        "layers": [
+          {
+            "layer": "fault",
+            "label": "Near faults",
+            "weight": 2.0,
+            "weight_used": 2.0,
+            "coverage_pct": 100.0,
+            "auc": 0.713
+          },
+          {
+            "layer": "contact",
+            "label": "Near unit contacts",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.698
+          },
+          {
+            "layer": "intrusive",
+            "label": "Near intrusive rocks",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.694
+          },
+          {
+            "layer": "geochem",
+            "label": "Stream-sediment pathfinders",
+            "weight": 3.0,
+            "weight_used": 1.56,
+            "coverage_pct": 51.9,
+            "auc": 0.655
+          }
+        ],
+        "checks": {
+          "auc": 0.776857159136285,
+          "n_folds_scored": 5,
+          "auc_fold_mean": 0.7685612214877906,
+          "auc_fold_std": 0.0751081614937802,
+          "auc_effort_matched_fold_mean": 0.6276847958408772,
+          "auc_effort_matched_fold_std": 0.06235987090959927,
+          "capture_top5_fold_mean": 0.22476074762235373,
+          "capture_top5_fold_std": 0.1307354359594376
+        },
+        "rank_correlation_with_forest": 0.76,
+        "top_overlap_with_forest": 0.164,
+        "n_knowledge_targets": 31
+      },
+      "top_importances": [
+        [
+          "unit_favourability",
+          0.2833293921018816
+        ],
+        [
+          "dist_intrusive",
+          0.09974854782268545
+        ],
+        [
+          "dist_contact",
+          0.09720366335746823
+        ],
+        [
+          "dist_fault",
+          0.09243123757980641
+        ],
+        [
+          "unit_age_ma",
+          0.05914276201948298
+        ],
+        [
+          "elevation",
+          0.05247648577800474
+        ]
+      ]
+    },
+    {
+      "label": "metallic",
+      "overrides": {
+        "occurrence_class": "metallic"
+      },
+      "n_cells": 746810,
+      "resolution_m": 100.0,
+      "n_positives": 710,
+      "n_occurrences_in_layer": 710,
+      "features": [
+        "dist_fault",
+        "dist_thrust",
+        "dist_contact",
+        "dist_intrusive",
+        "unit_age_ma",
+        "elevation",
+        "slope",
+        "relief",
+        "rgs_idx_sediment_hosted_zn_pb",
+        "rgs_idx_polymetallic_vein",
+        "rgs_idx_cu_porphyry_skarn",
+        "rgs_idx_gold_vein",
+        "rgs_idx_rare_earth_carbonatite",
+        "rgs_pc1",
+        "rgs_pc2",
+        "rgs_pc3",
+        "unit_favourability"
+      ],
+      "features_skipped": {
+        "tenure_density": "exploration effort: not used (effort: ignore)",
+        "aris_density": "exploration effort: not used (effort: ignore)",
+        "magnetics": "no a magnetic grid in rasters/ (magnetics, nrcan_magnetics, ...): see 'gossan harvest --source nrcan_geophysics' for where to get one and 'gossan ingest' to add it",
+        "rasters": "no rasters in rasters/"
+      },
+      "cv": {
+        "n_folds_scored": 5,
+        "auc_mean": 0.7392082244641645,
+        "auc_std": 0.04112619414347702,
+        "auc_effort_matched_mean": 0.6145993205612678,
+        "auc_effort_matched_std": 0.0280537234851993,
+        "capture_top5_mean": 0.12379238061243167,
+        "capture_top5_std": 0.024904956208940877,
+        "auc_vs_barren_mean": null,
+        "n_barren_cells": 0,
+        "block_size_m": 18975.0,
+        "buffer_m": 2000.0
+      },
+      "n_targets": 99,
+      "knowledge": {
+        "available": true,
+        "layers": [
+          {
+            "layer": "fault",
+            "label": "Near faults",
+            "weight": 2.0,
+            "weight_used": 2.0,
+            "coverage_pct": 100.0,
+            "auc": 0.715
+          },
+          {
+            "layer": "contact",
+            "label": "Near unit contacts",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.694
+          },
+          {
+            "layer": "intrusive",
+            "label": "Near intrusive rocks",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.691
+          },
+          {
+            "layer": "geochem",
+            "label": "Stream-sediment pathfinders",
+            "weight": 3.0,
+            "weight_used": 1.56,
+            "coverage_pct": 51.9,
+            "auc": 0.658
+          }
+        ],
+        "checks": {
+          "auc": 0.7768972874911984,
+          "n_folds_scored": 5,
+          "auc_fold_mean": 0.7683649329281146,
+          "auc_fold_std": 0.07588542063377526,
+          "auc_effort_matched_fold_mean": 0.6292687956554746,
+          "auc_effort_matched_fold_std": 0.05714432858909019,
+          "capture_top5_fold_mean": 0.22634808750362242,
+          "capture_top5_fold_std": 0.1265509047150013
+        },
+        "rank_correlation_with_forest": 0.745,
+        "top_overlap_with_forest": 0.185,
+        "n_knowledge_targets": 31
+      },
+      "top_importances": [
+        [
+          "unit_favourability",
+          0.25894254563389935
+        ],
+        [
+          "dist_fault",
+          0.10370018519060356
+        ],
+        [
+          "dist_intrusive",
+          0.10213314027209316
+        ],
+        [
+          "dist_contact",
+          0.09102965096148859
+        ],
+        [
+          "unit_age_ma",
+          0.058787684101497734
+        ],
+        [
+          "elevation",
+          0.05667122303801718
+        ]
+      ]
+    }
+  ],
+  "peak_mb_after_models": 2233,
+  "analysis": {
+    "inventory": "ok",
+    "geochem": "ok",
+    "occurrences": "ok",
+    "tenure": "ok",
+    "drilling": "ok",
+    "priorities": "ok",
+    "targets": "FAILED ValueError: Encountered all NA values"
+  },
+  "seconds": {
+    "harvest": 61.0,
+    "target_default": 239.8,
+    "target_metallic": 236.2,
+    "analyze": 53.3
+  },
+  "peak_mb": 2233,
+  "pipeline_notes": [
+    "info: minfile: 741 feature(s) written to data.gpkg",
+    "info: mto_tenure: 1572 feature(s) written to data.gpkg",
+    "info: aris_index: 1232 feature(s) written to data.gpkg",
+    "info: drilling_notices: 108 feature(s) written to data.gpkg",
+    "info: rgs: 519 feature(s) written to data.gpkg",
+    "info: bedrock_geology: 43 feature(s) written to data.gpkg",
+    "info: faults: 432 feature(s) written to data.gpkg",
+    "info: quaternary_cover: 6 feature(s) written to data.gpkg",
+    "info: mineral_potential: 9 feature(s) written to data.gpkg",
+    "info: minfile_production: 55 feature(s) written to data.gpkg",
+    "info: minfile_inventory: 935 feature(s) written to data.gpkg",
+    "info: rgs_survey_areas: 4 feature(s) written to data.gpkg",
+    "info: historic_notices: 818 feature(s) written to data.gpkg",
+    "info: permitted_mine_areas: 235 feature(s) written to data.gpkg",
+    "info: major_mine_areas: 4 feature(s) written to data.gpkg",
+    "info: crown_grants: 1202 feature(s) written to data.gpkg",
+    "info: parks_protected: 2 feature(s) written to data.gpkg",
+    "info: conservancies: 1 feature(s) written to data.gpkg",
+    "info: national_parks: 0 feature(s) written to data.gpkg",
+    "info: indian_reserves: 0 feature(s) written to data.gpkg",
+    "info: treaty_lands: 0 feature(s) written to data.gpkg",
+    "info: reserve_sites: 11 feature(s) written to data.gpkg",
+    "info: roads: 1795 feature(s) written to data.gpkg",
+    "info: transmission_lines: 7 feature(s) written to data.gpkg",
+    "info: dem: 1 raster(s) written to rasters/"
+  ]
+}

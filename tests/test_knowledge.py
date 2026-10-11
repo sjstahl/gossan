@@ -50,6 +50,11 @@ def test_combine_is_the_weighted_mean_and_support_labels_follow_the_percentile()
     assert [kn.support_label(p) for p in (95, 80, 60, 49)] == ["supported", "supported", "partly", "forest only"]
 
 
+def test_the_generic_mix_leaves_out_the_intrusive_rule_but_the_deposit_models_that_need_it_keep_it():
+    assert kn.PRESETS["generic"]["intrusive"] == 0  # contradicted at Boundary, silent at two areas, informative at Stewart (docs/validation)
+    assert kn.PRESETS["cu_porphyry_skarn"]["intrusive"] == 3 and kn.PRESETS["polymetallic_vein"]["intrusive"] == 1.5 and kn.PRESETS["gold_vein"]["intrusive"] == 1
+
+
 def test_presets_cover_every_deposit_model_and_layer():
     assert set(kn.PRESETS) == set(KnowledgeConfig.model_fields["deposit_model"].annotation.__args__)
     assert all(set(w) == set(kn.LABELS) for w in kn.PRESETS.values())

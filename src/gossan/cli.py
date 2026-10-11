@@ -100,7 +100,7 @@ def run_cmd(
     ] = None,
     occurrence_class: Annotated[
         str | None,
-        typer.Option("--class", help="Positives for the model: all, metallic, industrial or specialty. Default: target.occurrence_class."),
+        typer.Option("--class", help="Positives for the model: auto, all, metallic, industrial or specialty. Default: target.occurrence_class (auto)."),
     ] = None,
     resolution: Annotated[float | None, typer.Option("--resolution", min=0.001, help="Model grid cell size in metres.")] = None,
     cv: Annotated[bool, typer.Option("--cv/--no-cv", help="Run spatial cross-validation (slower).")] = True,
@@ -1027,8 +1027,10 @@ def _echo_target(r: TargetResult) -> None:
         f"Grid: {g.width} x {g.height} cells ({d['n_cells_bbox']:,}) at {g.resolution:g} m in {g.crs}; "
         f"{g.n_cells:,} cells ({d['area_km2']} km2) inside the AOI"
     )
-    cls = "" if r.cfg.occurrence_class == "all" else f" ({r.cfg.occurrence_class})"
+    cls = "" if r.stack.occurrence_class == "all" else f" ({r.stack.occurrence_class})"
     typer.echo(f"Known occurrences used as positives{cls}: {len(r.stack.positives)}")
+    if r.stack.class_note:
+        typer.secho(f"  occurrence class (auto): {r.stack.class_note}", fg="yellow")
     if r.stack.bias is not None:
         typer.echo("Background cells drawn in proportion to exploration effort (effort: bias)")
     if r.cfg.drill_labels != "off":
@@ -1207,8 +1209,8 @@ def target_cmd(
         str | None,
         typer.Option(
             "--class",
-            help="Positives: all, metallic, industrial or specialty occurrences (BC deposit-profile code). "
-            "Default: target.occurrence_class (all).",
+            help="Positives: auto, all, metallic, industrial or specialty occurrences (BC deposit-profile code). "
+            "Default: target.occurrence_class (auto: metallic where the layer has deposit-type codes).",
         ),
     ] = None,
     effort: Annotated[

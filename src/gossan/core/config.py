@@ -284,9 +284,13 @@ class TargetConfig(BaseModel):
     #: A feature with more than this fraction of the AOI missing is dropped; the rest are
     #: filled with the feature's median.
     max_missing_fraction: float = Field(default=0.6, ge=0, le=1)
-    #: Which known occurrences are the positives, by BC deposit-profile class: "all", "metallic",
-    #: "industrial" or "specialty" (see ``gossan.analyze.occurrences``). Needs DEPOSIT_TYPE_CODE1.
-    occurrence_class: Literal["all", "metallic", "industrial", "specialty"] = "all"
+    #: Which known occurrences are the positives, by BC deposit-profile class: "metallic", "industrial",
+    #: "specialty" or "all" (see ``gossan.analyze.occurrences``); these need DEPOSIT_TYPE_CODE1.
+    #: "auto" (default): metallic where the layer has deposit-type codes and at least ``min_positives``
+    #: metallic occurrences fall in the AOI, otherwise all. Metallic-only labels raised the forest's
+    #: effort-matched AUC in three of four validated BC areas (+0.04 to +0.06; the fourth was already 96%
+    #: metallic), because industrial minerals (gypsum, aggregate) are controlled by other things.
+    occurrence_class: Literal["auto", "all", "metallic", "industrial", "specialty"] = "auto"
     #: Exploration effort (ARIS report density, tenure density). "ignore" (default): not used, so
     #: the map is built from geology, geochemistry and terrain alone. "feature": the two layers are
     #: model inputs (the pre-2026-10 behaviour; high plain AUC because occurrences sit where people
@@ -318,7 +322,7 @@ class TargetConfig(BaseModel):
 #: included, into ``project.yaml``, so a default changed later in the code would never reach an
 #: existing project. When a change matters, bump this and add a migration below: opening an older
 #: project then updates the affected values (and says so), instead of silently keeping the old ones.
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 
 def _v1_to_v2(data: dict[str, Any]) -> list[str]:
@@ -335,8 +339,22 @@ def _v1_to_v2(data: dict[str, Any]) -> list[str]:
     return notes
 
 
+def _v2_to_v3(data: dict[str, Any]) -> list[str]:
+    """v3 made metallic-only labels the default ("auto"). A v2 file carries the old default, "all"."""
+    notes = []
+    target = data.get("target")
+    if isinstance(target, dict) and target.get("occurrence_class") == "all":
+        target["occurrence_class"] = "auto"
+        notes.append(
+            "target.occurrence_class was 'all' (the old default); it is now 'auto': metallic occurrences where the layer has deposit-type "
+            "codes, because metallic-only labels scored higher in three of four validated BC areas (see docs/validation). "
+            "Set it back to 'all' in project.yaml to train on every occurrence."
+        )
+    return notes
+
+
 #: From version N: a function that updates the settings in place and returns what it changed.
-MIGRATIONS: dict[int, Callable[[dict[str, Any]], list[str]]] = {1: _v1_to_v2}
+MIGRATIONS: dict[int, Callable[[dict[str, Any]], list[str]]] = {1: _v1_to_v2, 2: _v2_to_v3}
 
 
 def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], list[str], int]:

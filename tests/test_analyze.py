@@ -197,6 +197,23 @@ def test_target_decisions(project):
     assert "Access Only" in record.license
 
 
+def test_samples_without_a_usable_index_leave_the_geochemistry_columns_empty_instead_of_failing(project):
+    """Found validating a 7,000 km2 area: every sample near some target had NaN indices (too few elements
+    measured), and picking the best index raised 'Encountered all NA values'."""
+    _targets(project)
+    assert runner.invoke(app, ["analyze", "demo", "--steps", "geochem"]).exit_code == 0
+    path = project.root / "analysis" / "analysis.gpkg"
+    scores = gpd.read_file(path, layer="rgs_scores", engine="pyogrio")
+    idx = [c for c in scores if c.startswith("idx_")]
+    assert idx
+    scores[idx] = np.nan
+    scores.to_file(path, layer="rgs_scores", driver="GPKG", engine="pyogrio")
+    result = runner.invoke(app, ["analyze", "demo", "--steps", "targets"])
+    assert result.exit_code == 0, result.output
+    t = pd.read_csv(project.root / "analysis" / "target_decisions.csv")
+    assert t["best_geochem_index"].isna().all() and t["best_geochem_value"].isna().all() and len(t) == 3
+
+
 def test_target_decisions_need_targets(project):
     result = runner.invoke(app, ["analyze", "demo", "--steps", "targets"])
     assert result.exit_code == 1 and "gossan target" in result.output

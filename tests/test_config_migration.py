@@ -76,3 +76,27 @@ def test_new_projects_are_current_and_the_cli_announces_a_migration(aoi_file):
     (root / "aoi.gpkg").write_bytes((Path("fresh") / "aoi.gpkg").read_bytes())
     result = runner.invoke(app, ["analyze", str(root), "--steps", "inventory"])
     assert "project.yaml updated to settings version" in result.output and "flatters the scores" in result.output
+
+
+def test_version_3_makes_metallic_labels_the_default_for_projects_still_on_the_old_default():
+    data, notes, start = migrate({"config_version": 2, "target": {"occurrence_class": "all", "cv_buffer_m": None}})
+    assert start == 2 and data["target"]["occurrence_class"] == "auto" and len(notes) == 1
+    assert "validated BC areas" in notes[0] and "'all'" in notes[0]  # says why, and how to go back
+    for chosen in ("metallic", "industrial", "specialty"):
+        data, notes, _ = migrate({"config_version": 2, "target": {"occurrence_class": chosen}})
+        assert data["target"]["occurrence_class"] == chosen and notes == []  # a deliberate class is kept
+    data, notes, _ = migrate({"config_version": 3, "target": {"occurrence_class": "all"}})
+    assert data["target"]["occurrence_class"] == "all" and notes == []  # "all" chosen after the change stays
+
+
+def test_an_old_project_opens_on_auto_and_logs_the_change(tmp_path):
+    root = tmp_path / "v2"
+    root.mkdir()
+    data = ProjectConfig(name="v2", crs="EPSG:32611").model_dump(mode="json")
+    data["config_version"] = 2
+    data["target"]["occurrence_class"] = "all"
+    (root / "project.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    project = Project(root)
+    assert project.config.target.occurrence_class == "auto" and any("occurrence_class" in n for n in project.migration_notes)
+    (record,) = [r for r in project.provenance.read() if r.operation == "migrate_config"]
+    assert record.parameters["from_version"] == 2 and record.parameters["to_version"] == CONFIG_VERSION == 3

@@ -26,7 +26,9 @@ alteration  the highest of the same rise for the ASTER Al-OH, Mg-OH,         ``a
 =========== ================================================================ ==============================
 
 The weights come from the deposit model (``PRESETS``: starting points from general exploration geology,
-not tuned or validated on any area) and can be replaced one by one. A layer counts for less where it has
+not tuned on any area; the generic mix leaves the intrusive rule out, because across four validated BC areas it
+was contradicted at Boundary, silent at two more and informative only at Stewart, and removing it changed the
+held-out score by 0.01 or less except 0.02 at Stewart: choose a porphyry, vein or gold model where intrusives matter) and can be replaced one by one. A layer counts for less where it has
 gaps (its weight is scaled by the share of the AOI it covers), and the host layer only when the geologist
 names host units. Nothing here knows about ARIS or tenure: they measure where people looked.
 
@@ -62,7 +64,7 @@ from gossan.target.outputs import top_percentile_polygons
 
 #: Layer weights by deposit model.
 PRESETS: dict[str, dict[str, float]] = {
-    "generic": {"fault": 2, "contact": 1, "intrusive": 1, "host": 3, "geochem": 3, "magnetics": 1, "alteration": 1.5},
+    "generic": {"fault": 2, "contact": 1, "intrusive": 0, "host": 3, "geochem": 3, "magnetics": 1, "alteration": 1.5},
     "sediment_hosted_zn_pb": {"fault": 3, "contact": 1, "intrusive": 0, "host": 3, "geochem": 3, "magnetics": 0.5, "alteration": 0.5},
     "polymetallic_vein": {"fault": 3, "contact": 0.5, "intrusive": 1.5, "host": 3, "geochem": 3, "magnetics": 1, "alteration": 1.5},
     "cu_porphyry_skarn": {"fault": 1.5, "contact": 1, "intrusive": 3, "host": 3, "geochem": 3, "magnetics": 2, "alteration": 2},

@@ -136,6 +136,8 @@ class FeatureStack:
     #: Whether the label-derived distance feature is appended (``occurrence_distance``).
     use_label_feature: bool = True
     occurrence_class: str = "all"
+    #: When ``occurrence_class`` was "auto", why it resolved to what it did (empty when it needs no explaining).
+    class_note: str = ""
     #: Bedrock unit code of every cell (-1: none) when ``unit_favourability`` is used, else None.
     units: np.ndarray | None = None
     #: Datasets behind the geochemistry features (rgs, plus dem and bedrock_geology for catchments).
@@ -541,7 +543,7 @@ def _rasters(project: Project, grid: Grid, skip: frozenset[str] = frozenset()) -
     return out
 
 
-def _drill_cells(project: Project, grid: Grid, cfg: TargetConfig, positives: np.ndarray) -> tuple[np.ndarray, np.ndarray, str]:
+def _drill_cells(project: Project, grid: Grid, cfg: TargetConfig, positives: np.ndarray, occurrence_class: str) -> tuple[np.ndarray, np.ndarray, str]:
     """(cells of mineralized drill holes, cells of barren drill holes, a note) from the digitized
     drill tables; only holes placed by their own collar coordinates count. Barren cells never include
     a known occurrence or a mineralized hole: where evidence conflicts, mineralization wins."""
@@ -563,9 +565,28 @@ def _drill_cells(project: Project, grid: Grid, cfg: TargetConfig, positives: np.
     if len(barren) < cfg.min_drill_negatives:
         note = f"only {len(barren)} cell(s) hold a barren drill hole (need {cfg.min_drill_negatives}); not used"
         barren = none
-    if cfg.occurrence_class not in {"all", "metallic"}:
+    if occurrence_class not in {"all", "metallic"}:
         mineral = none  # drill grades say nothing about industrial minerals or REE deposits
     return mineral, barren, note
+
+
+def resolve_class(project: Project, grid: Grid, cfg: TargetConfig) -> tuple[str, str, tuple[np.ndarray, int, int]]:
+    """The occurrence class to train on, a note when ``auto`` fell back, and its positives.
+
+    ``auto``: metallic when the minfile layer has deposit-type codes and at least ``cfg.min_positives``
+    metallic occurrences fall in the AOI's cells; otherwise all (with the reason)."""
+    requested = cfg.occurrence_class
+    if requested != "auto":
+        return requested, "", _positives(project, grid, requested)
+    minfile = _layer(project, "minfile")
+    if minfile is None or "DEPOSIT_TYPE_CODE1" not in minfile:
+        return "all", "no deposit-type codes in the minfile layer, so all occurrences are used", _positives(project, grid, "all")
+    metallic = _positives(project, grid, "metallic")
+    if len(metallic[0]) >= cfg.min_positives:
+        return "metallic", "", metallic
+    everything = _positives(project, grid, "all")
+    note = f"only {len(metallic[0])} metallic occurrence cell(s) (need {cfg.min_positives}), so all occurrences are used"
+    return ("all", note, everything) if len(everything[0]) >= cfg.min_positives else ("metallic", "", metallic)
 
 
 def _positives(project: Project, grid: Grid, occurrence_class: str = "all") -> tuple[np.ndarray, int, int]:
@@ -624,8 +645,8 @@ def input_datasets(stack: FeatureStack) -> list[str]:
 
 def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack:
     """Build every available feature on ``grid``; skipped features are listed with reasons."""
-    positives, n_total, n_outside = _positives(project, grid, cfg.occurrence_class)
-    drill_extra, barren, drill_note = _drill_cells(project, grid, cfg, positives)
+    occurrence_class, class_note, (positives, n_total, n_outside) = resolve_class(project, grid, cfg)
+    drill_extra, barren, drill_note = _drill_cells(project, grid, cfg, positives, occurrence_class)
     n_drill_added = 0
     if cfg.drill_labels == "train" and len(drill_extra):
         n_drill_added = len(np.setdiff1d(drill_extra, positives))
@@ -700,7 +721,7 @@ def build_stack(project: Project, grid: Grid, cfg: TargetConfig) -> FeatureStack
     return FeatureStack(
         names, X, missing, skipped, positives, n_total, n_outside,
         bias=bias, effort_weights=effort_weights, use_label_feature=cfg.occurrence_distance,
-        occurrence_class=cfg.occurrence_class, units=units, geochem_inputs=geochem_inputs,
+        occurrence_class=occurrence_class, class_note=class_note, units=units, geochem_inputs=geochem_inputs,
         magnetic_dataset=mag_dataset if mag_features and "magnetics" not in mag_features else None,
         barren_cells=barren if len(barren) else None,
         negatives=barren if (cfg.drill_labels == "train" and len(barren)) else None,
