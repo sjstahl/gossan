@@ -344,6 +344,32 @@ Fewer than `target.min_drill_negatives` (5) barren cells are not used at all, an
 
 ---
 
+### Your company's look on the Word report
+
+The Word version of the report can carry your branding. Add a `branding:` block to `project.yaml`:
+
+```yaml
+branding:
+  company: Acme Geoscience
+  logo: branding/logo.png        # PNG or JPEG, relative to the project or absolute
+  accent: "#c2410c"              # headings, table headers and rules
+  font: Calibri
+  heading_font: Georgia
+  contact: geo@acme.example
+  cover_page: true               # logo, title, client, date, contact
+  footer_text: Acme Geoscience | Confidential to the client
+```
+
+For a full house style, write a starter template, edit it in Word, and point the project at it:
+
+```
+gossan template <project>        # writes <project>/branding/template.docx
+```
+
+Open that file in Word, change the styles (Home, Styles, right-click, Modify), page setup, header and footer, save it as `.docx` (not `.dotx`), then set `branding.template: branding/template.docx`. The report is then built inside your file and takes its styles, page setup, header and footer as they are; the template's own text is dropped.
+
+Branding changes how the report looks, never what it says. The draft or **INTERNAL** footer line, with the page number, is added to every page (the cover too) after whatever your footer holds, and the banner stays in the document. If the logo or template file is missing or unreadable, `gossan report` stops with a message rather than producing an unbranded client document. PDF reports are not branded.
+
 ## Drilling indicator on BC leads
 
 A plain `gossan harvest` on a BC project also downloads `drilling_notices`: Mines Act **Notice of Work** applications and permits that include surface exploration drilling. `gossan leads run` then adds, to every lead:

@@ -27,6 +27,7 @@ from gossan.core.ingest import ingest as ingest_file
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceLog
 from gossan.core.raster import raster_path
+from gossan.deliver import DeliverError, build_deliverable
 from gossan.digitize.catalogue import build_catalogue
 from gossan.digitize.claude_vision import ClaudeVisionError, model_name
 from gossan.digitize.claude_vision import (
@@ -68,6 +69,8 @@ from gossan.pipeline import (
     summary_lines,
 )
 from gossan.report.analysis_render import build_analysis_report
+from gossan.report.branding import TEMPLATE_NAME, BrandingError, write_starter_template
+from gossan.report.branding import resolve as resolve_branding
 from gossan.report.builder import build_report
 from gossan.report.pdf import ReportError, build_pdf
 from gossan.spectral import SpectralError, build_aster
@@ -490,12 +493,16 @@ def report(
     fmt = fmt or ("both" if kind == "analysis" else "pdf")
     if fmt not in {"pdf", "docx", "both"}:
         raise typer.BadParameter("use pdf, docx or both", param_hint="--format")
-    if kind == "analysis":
-        for path in build_analysis_report(proj, fmt):
-            typer.echo(f"Wrote {path}")
-        return
-    if fmt in {"docx", "both"}:
-        typer.echo(f"Wrote {build_report(proj)}")
+    try:
+        if kind == "analysis":
+            for path in build_analysis_report(proj, fmt):
+                typer.echo(f"Wrote {path}")
+            return
+        if fmt in {"docx", "both"}:
+            typer.echo(f"Wrote {build_report(proj)}")
+    except BrandingError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
     if fmt in {"pdf", "both"}:
         try:
             typer.echo(f"Wrote {build_pdf(proj, lead)}")
@@ -1082,6 +1089,72 @@ def _echo_target(r: TargetResult) -> None:
         if key == "targets" and not r.n_targets:
             continue
         typer.echo(f"  {key}: {rel}")
+
+
+@app.command("template")
+def template_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder (its branding: settings are used).")],
+    out: Annotated[Path | None, typer.Option("--out", help="Where to write the .docx. Default: <project>/branding/template.docx.")] = None,
+    overwrite: Annotated[bool, typer.Option("--overwrite", help="Replace the file if it exists.")] = False,
+) -> None:
+    """Write a starter Word template from the project's branding settings, to edit in Word.
+
+    The file shows the styles the reports use (Title, Heading 1 and 2, Normal, List Bullet, Caption) with
+    the company header (name and logo) and footer from branding: in project.yaml. Open it in Word, set the
+    house style, page setup, header and footer, save as .docx, and set branding.template to its path:
+    Word reports are then built inside it. The draft or internal marking and the page number are always
+    added to the footer, whatever the template holds. Settings: company, logo, accent, font, heading_font,
+    footer_text, contact, template, cover_page.
+    """
+    proj = _open_project(project)
+    path = out or proj.root / "branding" / TEMPLATE_NAME
+    if path.exists() and not overwrite:
+        typer.secho(f"Error: {path} exists; use --overwrite to replace it", fg="red", err=True)
+        raise typer.Exit(1)
+    try:
+        brand = resolve_branding(proj)
+        write_starter_template(path, brand)
+    except BrandingError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    typer.echo(f"Wrote {path}")
+    typer.echo("Edit it in Word, save as .docx, then set branding.template in project.yaml to use it for reports.")
+
+
+@app.command("deliver")
+def deliver_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder after 'gossan target'.")],
+    out: Annotated[Path | None, typer.Option("--out", help="Package folder. Default: <project>/outputs/deliverable.")] = None,
+    include_internal: Annotated[
+        bool, typer.Option("--include-internal", help="Also package Access Only and other restricted items (for use inside the company only; the package is marked INTERNAL).")
+    ] = False,
+    zip_: Annotated[bool, typer.Option("--zip", help="Also write <folder>.zip.")] = False,
+) -> None:
+    """Build the client package: a QGIS project, an offline interactive map, the data and the report.
+
+    Writes <project>/outputs/deliverable/ with <name>.qgs (styled layers), map.html (one file, works
+    offline, no basemap, click for attributes), data/deliverable.gpkg, rasters/, the analysis report
+    when it carries no restricted data, README.txt and manifest.json (file hashes, licences).
+
+    Each item goes in only if its licence is on record and does not restrict it: anything made from
+    Access Only data (ARIS, minfile inventory) is left out and listed under LEFT OUT in the README.
+    Leads are never packaged. --include-internal lifts the licence test for an internal copy and marks
+    every face INTERNAL. Run 'gossan report' first if you want the report in the package.
+    """
+    proj = _open_project(project)
+    try:
+        result = build_deliverable(proj, out, include_internal=include_internal, make_zip=zip_)
+    except DeliverError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    typer.echo(f"Package: {result.folder}")
+    for item in result.included:
+        typer.echo(f"  in    {item.title} ({item.kind})")
+    for item in result.withheld:
+        typer.secho(f"  left out  {item.title}: {item.withheld}", fg="yellow")
+    if result.internal:
+        typer.secho("  INTERNAL: contains restricted items; do not send it outside the company", fg="red", err=True)
+    typer.echo(f"Open {result.folder / 'map.html'} in a browser, or the .qgs file in QGIS" + (f"; zipped to {result.zip_path}" if result.zip_path else ""))
 
 
 @app.command("spectral")

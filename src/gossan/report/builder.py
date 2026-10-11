@@ -11,11 +11,17 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pyogrio
-from docx import Document
 from docx.shared import Inches
 
 from gossan.core.project import Project
 from gossan.core.provenance import ProvenanceRecord
+from gossan.report.branding import (
+    add_furniture,
+    bullet,
+    new_document,
+    resolve,
+    set_properties,
+)
 
 MINFILE_LAYER = "minfile"
 MAP_NAME = "map.png"
@@ -98,7 +104,10 @@ def build_report(project: Project) -> Path:
     points = read_minfile(project)
     n_points = 0 if points is None else len(points)
 
-    doc = Document()
+    brand = resolve(project)
+    doc = new_document(brand)
+    add_furniture(doc, brand, brand.footer_text or 'DRAFT | Machine-generated: for geologist review', project.config.name)
+    set_properties(doc, brand, project.config.name)
     doc.add_heading(project.config.name, level=0)
     if project.config.client:
         doc.add_paragraph(f"Client: {project.config.client}")
@@ -117,14 +126,13 @@ def build_report(project: Project) -> Path:
     if not sources:
         doc.add_paragraph("No external datasets have been retrieved for this project.")
     for r in sources:
-        p = doc.add_paragraph(style="List Bullet")
-        p.add_run(f"{r.dataset}").bold = True
-        p.add_run(
-            f": {r.source}, {r.identifier}. Retrieved {r.retrieved_at:%Y-%m-%d}. "
-            f"Licence: {r.license}."
-        )
-        if r.url:
-            p.add_run(f" {r.url}")
+        def fill(p, r=r) -> None:
+            p.add_run(f"{r.dataset}").bold = True
+            p.add_run(f": {r.source}, {r.identifier}. Retrieved {r.retrieved_at:%Y-%m-%d}. Licence: {r.license}.")
+            if r.url:
+                p.add_run(f" {r.url}")
+
+        bullet(doc, fill)
     if any("British Columbia" in r.license for r in sources):
         doc.add_paragraph(
             "Contains information licensed under the Open Government Licence - British Columbia."

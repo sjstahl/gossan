@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -154,6 +155,40 @@ class TenureConfig(BaseModel):
     update_days: int = Field(default=90, ge=1)
     #: Flag a tenure that has changed hands at least this many times.
     churn_transfers: int = Field(default=2, ge=1)
+
+
+class BrandingConfig(BaseModel):
+    """The company's look for Word reports (``gossan.report.branding``). Branding never removes or weakens
+    the Access Only marking or the draft banner: it changes appearance, not the disclaimers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    company: str | None = None
+    #: Logo (PNG or JPEG), a path relative to the project folder or absolute. Shown in the page header,
+    #: and large on the cover page.
+    logo: str | None = None
+    #: Colour (``#rrggbb``) of headings, table headers and rules. Ignored by a ``template``'s own styles.
+    accent: str = "#2a78d6"
+    font: str = "Calibri"
+    #: Heading font; None uses ``font``.
+    heading_font: str | None = None
+    #: Replaces the standard footer text ("DRAFT | Machine-generated: for geologist review") on reports with
+    #: no restricted data; on a marked report it is added after the marking.
+    footer_text: str | None = None
+    #: Contact line for the cover page.
+    contact: str | None = None
+    #: A ``.docx`` (not ``.dotx``) whose styles, page setup, header and footer the report uses; made with
+    #: ``gossan template`` or in Word. Its body text is ignored.
+    template: str | None = None
+    #: Put a cover page (logo, title, client, date, contact) first.
+    cover_page: bool = False
+
+    @field_validator("accent")
+    @classmethod
+    def _hex_colour(cls, v: str) -> str:
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+            raise ValueError("use a colour like #2a78d6")
+        return v
 
 
 class KnowledgeConfig(BaseModel):
@@ -335,6 +370,7 @@ class ProjectConfig(BaseModel):
     geochem: GeochemConfig = Field(default_factory=GeochemConfig)
     tenure: TenureConfig = Field(default_factory=TenureConfig)
     spectral: SpectralConfig = Field(default_factory=SpectralConfig)
+    branding: BrandingConfig = Field(default_factory=BrandingConfig)
     drill: DrillConfig = Field(default_factory=DrillConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 

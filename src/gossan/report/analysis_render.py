@@ -15,7 +15,6 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 import pymupdf
-from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -48,6 +47,17 @@ from gossan.report.analysis_content import (
     Para,
     Table,
     build_content,
+)
+from gossan.report.branding import (
+    Branding,
+    add_cover,
+    add_furniture,
+    bullet,
+    grid_table,
+    new_document,
+    resolve,
+    set_properties,
+    tint,
 )
 from gossan.report.pdf import (  # noqa: F401
     ASSETS_DIR,
@@ -226,7 +236,7 @@ def _field(paragraph, instruction: str) -> None:
 
 def _word_banner(doc, text: str, marked: bool) -> None:
     t = doc.add_table(rows=1, cols=1)
-    t.style = "Table Grid"
+    grid_table(t)
     cell = t.rows[0].cells[0]
     _shade(cell, "FDECEA" if marked else "F1F1F1")
     cell.paragraphs[0].text = ""
@@ -234,10 +244,10 @@ def _word_banner(doc, text: str, marked: bool) -> None:
     doc.add_paragraph()
 
 
-def _word_table(doc, b: Table) -> None:
+def _word_table(doc, b: Table, header_fill: str = "E6ECF3") -> None:
     ncol = len(b.rows[0])
     t = doc.add_table(rows=len(b.rows), cols=ncol)
-    t.style = "Table Grid"
+    grid_table(t)
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
     t.autofit = False
     total = sum(b.widths)
@@ -250,7 +260,7 @@ def _word_table(doc, b: Table) -> None:
             _runs(cell.paragraphs[0], str(value), size=8, bold=r == 0)
             cell.paragraphs[0].paragraph_format.space_after = Pt(0)
             if r == 0:
-                _shade(cell, "E6ECF3")
+                _shade(cell, header_fill)
             elif r % 2 == 0:
                 _shade(cell, "F7F7F7")
     header = t.rows[0]._tr.get_or_add_trPr()
@@ -264,24 +274,32 @@ def _word_table(doc, b: Table) -> None:
         doc.add_paragraph()
 
 
-def write_docx(report: AnalysisReport, path: Path, project_name: str) -> None:
-    doc = Document()
-    for section in doc.sections:
-        section.left_margin = section.right_margin = Inches(0.75)
-        section.top_margin, section.bottom_margin = Inches(0.7), Inches(0.9)
-        footer = section.footer.paragraphs[0]
-        _runs(footer, f"{MARKED_FOOTER if report.marked else PLAIN_FOOTER}   |   {project_name}   |   Page ", size=7, bold=report.marked, colour="7B1D12" if report.marked else "555555")
-        _field(footer, "PAGE")
-    normal = doc.styles["Normal"]
-    normal.font.name = "Calibri"
-    normal.font.size = Pt(10)
-    doc.core_properties.title = report.title
-    doc.core_properties.author = "Gossan"
+def footer_line(report: AnalysisReport, brand: Branding) -> str:
+    """The footer text: the marking is always there; branding may add to it, or replace the plain draft text."""
+    if report.marked:
+        return f"{MARKED_FOOTER}   |   {brand.footer_text}" if brand.footer_text else MARKED_FOOTER
+    return brand.footer_text or PLAIN_FOOTER
 
-    doc.add_heading(report.title, level=0)
-    p = doc.add_paragraph()
-    _runs(p, report.subtitle, size=9, colour="555555")
-    _word_banner(doc, banner_text(report), report.marked)
+
+def write_docx(report: AnalysisReport, path: Path, project_name: str, branding: Branding | None = None) -> None:
+    """The report as Word, in the company's look when ``branding`` is given (see ``gossan.report.branding``)."""
+    brand = branding or Branding(project_name=project_name)
+    doc = new_document(brand)
+    if brand.template is None:  # a template keeps its own page setup
+        for section in doc.sections:
+            section.left_margin = section.right_margin = Inches(0.75)
+            section.top_margin, section.bottom_margin = Inches(0.7), Inches(0.9)
+    add_furniture(doc, brand, footer_line(report, brand), project_name, report.marked)
+    set_properties(doc, brand, report.title)
+    fill = tint(brand.accent)
+
+    if brand.cover_page:
+        add_cover(doc, brand, report.title, report.subtitle, lambda d: _word_banner(d, banner_text(report), report.marked))
+    else:
+        doc.add_heading(report.title, level=0)
+        p = doc.add_paragraph()
+        _runs(p, report.subtitle, size=9, colour="555555")
+        _word_banner(doc, banner_text(report), report.marked)
     for b in report.blocks:
         if isinstance(b, Heading):
             doc.add_heading(b.text, level=b.level)
@@ -289,9 +307,9 @@ def write_docx(report: AnalysisReport, path: Path, project_name: str) -> None:
             _runs(doc.add_paragraph(), b.text, size=8 if b.small else None, colour="444444" if b.small else None)
         elif isinstance(b, Bullets):
             for item in b.items:
-                _runs(doc.add_paragraph(style="List Bullet"), item)
+                bullet(doc, lambda p, item=item: _runs(p, item))
         elif isinstance(b, Table):
-            _word_table(doc, b)
+            _word_table(doc, b, fill)
         elif isinstance(b, Figure):
             with PILImage.open(b.path) as im:
                 w, h = im.size
@@ -326,8 +344,9 @@ def build_analysis_report(project: Project, fmt: str = "both") -> list[Path]:
         written.append((path, "report_analysis_pdf", {"pages": write_pdf(report, path, project.config.name)}))
     if fmt in {"docx", "both"}:
         path = outputs / DOCX_NAME
-        write_docx(report, path, project.config.name)
-        written.append((path, "report_analysis_docx", {}))
+        brand = resolve(project)
+        write_docx(report, path, project.config.name, brand)
+        written.append((path, "report_analysis_docx", {"branding": {"company": brand.company, "template": brand.template.name if brand.template else None, "cover_page": brand.cover_page, "logo": brand.logo.name if brand.logo else None}}))
     licence = derived_license_from(project.provenance.read(), report.inputs)
     for path, dataset, extra in written:
         project.provenance.log(
