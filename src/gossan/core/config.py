@@ -58,6 +58,24 @@ class SatelliteConfig(BaseModel):
     aster_collection: str = "AST_L1T_004"
 
 
+class SpectralConfig(BaseModel):
+    """Settings for ASTER alteration indices (``gossan spectral``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Detector gain the scenes were acquired at. The GeoTIFFs hold raw digital numbers; converting to
+    #: radiance needs the gain, which varies by scene and band and is not read from the files. Normal
+    #: gain is the usual setting over land; the band ratios shift a few percent if a scene used another.
+    gain: Literal["high", "normal", "low1"] = "normal"
+    #: Cell size (metres) of the index rasters. ASTER's SWIR bands are 30 m, its VNIR bands 15 m.
+    resolution_m: float = Field(default=30.0, gt=0)
+    #: Cells whose vegetation index (on at-sensor radiance, which reads lower than on reflectance) is
+    #: above this are masked: alteration indices mean nothing under forest, which is most of British Columbia.
+    ndvi_max: float = Field(default=0.3, ge=-1, le=1)
+    #: Cells whose snow index is above this are masked (snow and ice, and much cloud).
+    snow_ndsi: float = Field(default=0.4, ge=-1, le=1)
+
+
 class GeochemConfig(BaseModel):
     """Settings for stream-sediment catchments (``gossan analyze``, and ``gossan target`` features)."""
 
@@ -289,6 +307,7 @@ class ProjectConfig(BaseModel):
     target: TargetConfig = Field(default_factory=TargetConfig)
     geochem: GeochemConfig = Field(default_factory=GeochemConfig)
     tenure: TenureConfig = Field(default_factory=TenureConfig)
+    spectral: SpectralConfig = Field(default_factory=SpectralConfig)
     drill: DrillConfig = Field(default_factory=DrillConfig)
     parameters: dict[str, Any] = Field(default_factory=dict)
 

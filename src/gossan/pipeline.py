@@ -34,6 +34,8 @@ from gossan.harvest import CONNECTORS, default_sources
 from gossan.harvest.national.nrcan_geophysics import ManualDownloadRequired
 from gossan.harvest.satellite.stac import SatelliteAuthError
 from gossan.report.analysis_render import build_analysis_report
+from gossan.spectral import SpectralError, build_aster
+from gossan.spectral.aster import find_scenes
 from gossan.target.run import TargetError, TargetResult, run_target
 
 STEPS = ("harvest", "target", "analyze", "report")
@@ -141,6 +143,12 @@ def _harvest_step(proj: Project, sources: list[str] | None, reporter: Reporter) 
 
 
 def _target_step(proj: Project, cfg: TargetConfig, cross_validate: bool, reporter: Reporter) -> StepOutcome:
+    if find_scenes(proj):  # downloaded ASTER scenes become index rasters the model can use
+        try:
+            built = build_aster(proj)
+            reporter.say("info", f"spectral: {len(built.summary['indices'])} ASTER index raster(s) from {built.summary['n_scenes']} scene(s)")
+        except SpectralError as e:
+            reporter.say("warn", f"spectral: skipped: {e}")
     try:
         result = run_target(proj, cfg, cross_validate=cross_validate)
     except TargetError as e:

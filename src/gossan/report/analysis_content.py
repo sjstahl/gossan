@@ -31,6 +31,7 @@ from gossan.report.analysis_figures import (
     ground_map,
     magnetics_map,
     read_csv,
+    spectral_map,
     tenure_map,
 )
 from gossan.report.assets import finite_range, raster_map
@@ -153,6 +154,7 @@ class Loaded:
     drill: dict | None = None
     priorities: pd.DataFrame | None = None
     priorities_summary: dict | None = None
+    spectral: dict | None = None
 
 
 def load(project: Project) -> Loaded:
@@ -190,6 +192,7 @@ def load(project: Project) -> Loaded:
         _json(a / "drill_summary.json"),
         read_csv(project, "digitize_priorities"),
         _json(a / "digitize_priorities_summary.json"),
+        _json(a / "spectral_summary.json"),
     )
 
 
@@ -432,6 +435,44 @@ def _sec_geochem(project: Project, L: Loaded, assets: Path) -> list[Block]:
             rows.append([pc, f"{g['pca_explained_variance'][i]:.0%}", ", ".join(v["positive"]), ", ".join(v["negative"])])
         blocks.append(Heading("Main patterns in the data", 2))
         blocks.append(Table(rows, [0.9, 0.8, 2.3, 2.3], "Principal components of the centred-log-ratio transformed concentrations. Elements at opposite ends vary against each other."))
+    return blocks
+
+
+def _sec_spectral(project: Project, L: Loaded, assets: Path) -> list[Block]:
+    """ASTER band-ratio alteration indices. Absent from the report unless ``gossan spectral`` was run."""
+    s = L.spectral
+    if s is None:
+        return []
+    blocks: list[Block] = [Heading("Satellite alteration indices (ASTER)")]
+    if not s.get("available"):
+        return blocks + [Para(f"Not available: {s.get('reason', 'no scenes')}.")]
+    blocks.append(
+        Para(
+            f"Band ratios from {s['n_scenes']} ASTER scene(s) at {s['resolution_m']:.0f} m, on at-sensor radiance assuming {s['gain']} gain, "
+            "after removing vegetation, snow and cells with no data. They respond to exposed rock and soil only: where forest or snow covers the ground, "
+            "there is no value, and a grey cell is unknown, not unaltered. Each ratio is a published proxy for a mineral group, not a mineral map, and the values "
+            "are not corrected for the atmosphere or the sun angle."
+        )
+    )
+    bare = s.get("median_bare_pct")
+    if bare is not None:
+        blocks.append(Para(f"A typical scene leaves {bare:.0f}% of its cells as bare ground after masking."))
+    fig = spectral_map(project, assets / "spectral_map.png")
+    if fig:
+        blocks.append(Figure(fig, "Figure 1. ASTER alteration indices on bare ground. Darker is a stronger response.", 0.95))
+    rows = []
+    for ix in s.get("indices", []):
+        auc = ix.get("auc")
+        rows.append([ix["label"], ix["formula"], f"{ix['valid_pct']:.0f}%", str(ix["n_occurrences"]), "too few" if auc is None else f"{auc:.2f}"])
+    if rows:
+        blocks.append(
+            Table(
+                [["Index", "Formula", "AOI with a value", "Occurrences with a value", "Occurrence AUC"], *rows],
+                [2.0, 1.4, 1.0, 1.1, 0.9],
+                "AUC is the chance that a metallic occurrence scores above a random bare-ground cell (0.5 is no separation). Occurrences cluster in a few "
+                "districts and sit where there is exposure, so read it as a screen, not a validation.",
+            )
+        )
     return blocks
 
 
@@ -731,6 +772,7 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
         "data": lambda: _sec_inventory(project, L),
         "geology": lambda: _sec_geology(project, L, assets),
         "geochemistry": lambda: _sec_geochem(project, L, assets),
+        "spectral": lambda: _sec_spectral(project, L, assets),
         "targets": lambda: _sec_targets(project, L, assets),
         "tenure": lambda: _sec_tenure(project, L, assets),
         "drilling": lambda: _sec_drilling(project, L, assets),
@@ -741,7 +783,12 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
     for name, build in builders.items():
         if name in NEW_PAGE:
             report.blocks.append(PageBreak())
-        report.blocks += build()
+        blocks = build()
+        if not blocks:  # an optional section with nothing to say
+            if name in NEW_PAGE:
+                report.blocks.pop()
+            continue
+        report.blocks += blocks
         report.sections.append(name)
     report.inputs = _inputs(records)
     number_figures(report)

@@ -70,6 +70,7 @@ from gossan.pipeline import (
 from gossan.report.analysis_render import build_analysis_report
 from gossan.report.builder import build_report
 from gossan.report.pdf import ReportError, build_pdf
+from gossan.spectral import SpectralError, build_aster
 from gossan.target.run import TargetError, TargetResult, run_target
 
 app = typer.Typer(
@@ -1071,6 +1072,36 @@ def _echo_target(r: TargetResult) -> None:
         if key == "targets" and not r.n_targets:
             continue
         typer.echo(f"  {key}: {rel}")
+
+
+@app.command("spectral")
+def spectral_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder with ASTER scenes in raw/satellite/aster/.")],
+    force: Annotated[bool, typer.Option("--force", help="Rebuild the index rasters even if they are newer than the scenes.")] = False,
+) -> None:
+    """Build ASTER alteration indices (band ratios) from downloaded scenes.
+
+    Reads raw/satellite/aster/<scene id>/ (from 'gossan harvest --source aster --limit-scenes N',
+    which needs EARTHDATA_TOKEN, or put there by hand), removes vegetation, snow and no-data cells,
+    and writes rasters/aster_ferric, aster_gossan, aster_ferrous, aster_aloh and aster_mgoh, which
+    'gossan target' uses as features where they cover enough of the area. Writes
+    analysis/spectral_summary.json with each index's coverage and how well it separates known
+    metallic occurrences from background. The ratios see bare rock and soil only; most of British
+    Columbia is forested, so expect large masked areas (settings under spectral: in project.yaml).
+    """
+    proj = _open_project(project)
+    try:
+        result = build_aster(proj, force=force)
+    except SpectralError as e:
+        typer.secho(f"Error: {e}", fg="red", err=True)
+        raise typer.Exit(1) from e
+    s = result.summary
+    typer.echo(f"{s['n_scenes']} scene(s); a typical one is {s['median_bare_pct']}% bare ground after masking" if s["median_bare_pct"] is not None else f"{s['n_scenes']} scene(s)")
+    for ix in s["indices"]:
+        auc = "n/a" if ix["auc"] is None else f"{ix['auc']:.2f}"
+        typer.echo(f"{ix['raster']:<14} {ix['formula']:<20} {ix['valid_pct']:>5.1f}% of the AOI; {ix['n_occurrences']} occurrence(s) covered; AUC {auc}")
+    for note in s["notes"]:
+        typer.secho(f"  {note}", fg="yellow", err=True)
 
 
 @app.command("target")

@@ -327,6 +327,51 @@ def magnetics_map(project: Project, dest: Path) -> Path | None:
     return dest
 
 
+def spectral_map(project: Project, dest: Path) -> Path | None:
+    """The ASTER alteration indices (up to four) on the bare ground left after masking, with the known
+    occurrences. None without index rasters."""
+    import rasterio
+
+    names = [n for n in ("aloh", "mgoh", "ferric", "gossan", "ferrous") if (project.root / "rasters" / f"aster_{n}.tif").exists()][:4]
+    if not names:
+        return None
+    from gossan.spectral.aster import INDICES
+
+    aoi = project.read_aoi()
+    occ = data_layer(project, "minfile")
+    cols = 2 if len(names) > 1 else 1
+    rows = -(-len(names) // cols)
+    fig, axes = plt.subplots(rows, cols, figsize=(3.6 * cols, 3.4 * rows), squeeze=False)
+    cmap = SEQ.copy()
+    cmap.set_bad(GRID)
+    for ax, name in zip(axes.ravel(), names, strict=False):
+        with rasterio.open(project.root / "rasters" / f"aster_{name}.tif") as ds:
+            data = ds.read(1, masked=False)
+            b = ds.bounds
+        shown = np.ma.masked_invalid(data)
+        if shown.count():
+            lo, hi = (float(v) for v in np.nanpercentile(data, [2, 98]))
+        else:
+            lo, hi = 0.0, 1.0
+        ax.imshow(shown, extent=(b.left, b.right, b.bottom, b.top), cmap=cmap, vmin=lo, vmax=max(hi, lo + 1e-6), interpolation="nearest")
+        if occ is not None:
+            occ.plot(ax=ax, color=ORANGE, edgecolor="white", markersize=10, linewidth=0.4, zorder=5)
+        aoi.boundary.plot(ax=ax, color=AOI_COLOUR, linewidth=1.0)
+        _extent(ax, project)
+        ax.set_aspect("equal")
+        ax.set_title(f"{INDICES[name][0]}"+chr(10)+f"{INDICES[name][1]}", fontsize=7)
+        ax.tick_params(labelsize=5, labelrotation=25)
+        ax.ticklabel_format(style="plain", useOffset=False)
+    for ax in axes.ravel()[len(names):]:
+        ax.axis("off")
+    fig.suptitle("ASTER indices on bare ground (grey: vegetation, snow or no scene; occurrences orange)", fontsize=8)
+    fig.tight_layout()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(dest, dpi=130)
+    plt.close(fig)
+    return dest
+
+
 def tenure_map(project: Project, dest: Path) -> Path | None:
     """Mineral tenure shaded by what is worth watching (expiring soon, recently staked), with
     tenures that changed between saved snapshots outlined in black."""
