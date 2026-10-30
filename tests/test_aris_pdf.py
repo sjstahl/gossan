@@ -2,11 +2,11 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from gossan.harvest.bc.aris_pdf import pdf_url
 from typer.testing import CliRunner
 
 from gossan.cli import app
 from gossan.core.project import Project
-from gossan.harvest.bc.aris_pdf import pdf_url
 
 runner = CliRunner()
 URL_8038 = "https://apps.nrs.gov.bc.ca/pub/aris/Report/08038.pdf/"
