@@ -231,11 +231,23 @@ def test_claude_is_never_called_by_default(scan_project, fake_claude):
     assert review.read_queue(scan_project) == []
 
 
+def flat(output: str) -> str:
+    """CLI output without colour codes, box-drawing characters or line breaks.
+
+    Typer wraps an error into a framed panel at the terminal width, which differs between a developer's
+    terminal and CI, so a long option name can be split across lines.
+    """
+    import re
+
+    text = re.sub(r"\x1b\[[0-9;]*m", "", output)
+    return re.sub(r"[\s\u2500-\u257f]+", "", text)
+
+
 def test_scanned_extraction_needs_explicit_pages(scan_project, fake_claude):
     result = runner.invoke(app, ["digitize", "demo", "--extract-scanned-tables"])
-    assert result.exit_code != 0 and "--target-pages" in result.output
+    assert result.exit_code != 0 and "--target-pages" in flat(result.output)
     result = runner.invoke(app, ["digitize", "demo", "--target-pages", "2"])  # no --report
-    assert result.exit_code != 0 and "--target-pages" in result.output
+    assert result.exit_code != 0 and "--target-pages" in flat(result.output)
     assert fake_claude.calls == []
     assert not (scan_project.root / "digitize" / "pages").exists()
 

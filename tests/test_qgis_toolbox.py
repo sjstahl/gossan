@@ -308,14 +308,14 @@ def test_child_environment_drops_qgis_python_and_gdal_settings(toolbox):
     env = {
         "PYTHONHOME": "C:/QGIS/apps/Python312", "PYTHONPATH": "C:/QGIS/python", "QGIS_PREFIX_PATH": "C:/QGIS/apps/qgis",
         "GDAL_DATA": "C:/QGIS/share/gdal", "PROJ_LIB": "C:/QGIS/share/proj", "proj_data": "x", "OSGEO4W_ROOT": "C:/OSGeo4W",
-        "PATH": sep.join(["C:/Program Files/QGIS 3.36/bin", "C:/Windows", "C:/OSGeo4W/bin", "C:/Users/me/venv/Scripts"]),
+        "PATH": sep.join(["/Program Files/QGIS 3.36/bin", "/Windows", "/OSGeo4W/bin", "/Users/me/venv/Scripts"]),  # no drive letters: ":" is the separator on Linux
         "HOME": "/home/me", "ANTHROPIC_API_KEY": "kept",
     }  # fmt: skip
     original = dict(env)
     clean = toolbox.clean_environment(env)
     for gone in ("PYTHONHOME", "PYTHONPATH", "QGIS_PREFIX_PATH", "GDAL_DATA", "PROJ_LIB", "proj_data", "OSGEO4W_ROOT"):
         assert gone not in clean
-    assert clean["PATH"].split(sep) == ["C:/Windows", "C:/Users/me/venv/Scripts"]  # QGIS and OSGeo4W entries dropped
+    assert clean["PATH"].split(sep) == ["/Windows", "/Users/me/venv/Scripts"]  # QGIS and OSGeo4W entries dropped
     assert clean["HOME"] == "/home/me" and clean["ANTHROPIC_API_KEY"] == "kept"  # everything else untouched
     assert clean["PYTHONUTF8"] == "1" and clean["PYTHONIOENCODING"] == "utf-8"
     assert env == original  # the caller's environment is not modified
