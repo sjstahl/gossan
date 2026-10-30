@@ -65,6 +65,18 @@ def input_licenses(records: list[ProvenanceRecord], datasets: list[str]) -> dict
     return out
 
 
+def is_open_dataset(records: list[ProvenanceRecord], dataset: str) -> bool:
+    """True when ``dataset`` has a fetch or manual-ingest record whose licence is neither Access Only
+    nor internal-only, and its name is not an ARIS dataset."""
+    if ARIS_DATASET.match(dataset.lower()) or "aris" in dataset.lower():
+        return False
+    lic = input_licenses(records, [dataset]).get(dataset)
+    if lic is None:
+        return False
+    low = lic.lower()
+    return "access only" not in low and "internal use only" not in low
+
+
 def derived_license_from(records: list[ProvenanceRecord], datasets: list[str]) -> str:
     """Licence text for a Gossan output made from ``datasets``.
 

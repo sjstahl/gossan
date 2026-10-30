@@ -329,7 +329,7 @@ def write_docx(report: AnalysisReport, path: Path, project_name: str, branding: 
 # --- entry point -----------------------------------------------------------------------------
 
 
-def build_analysis_report(project: Project, fmt: str = "both") -> list[Path]:
+def build_analysis_report(project: Project, fmt: str = "both", *, open_only: bool = False) -> list[Path]:
     """Write ``outputs/analysis_report.pdf`` and/or ``.docx`` (``fmt``: pdf, docx or both) and log
     each to provenance. Figures are drawn under ``outputs/report_assets/analysis/``."""
     if fmt not in {"pdf", "docx", "both"}:
@@ -337,7 +337,7 @@ def build_analysis_report(project: Project, fmt: str = "both") -> list[Path]:
     outputs = project.outputs_dir
     assets = outputs / ASSETS_DIR / "analysis"
     assets.mkdir(parents=True, exist_ok=True)
-    report = build_content(project, assets)
+    report = build_content(project, assets, open_only=open_only)
     written: list[tuple[Path, str, dict]] = []
     if fmt in {"pdf", "both"}:
         path = outputs / PDF_NAME
@@ -359,6 +359,7 @@ def build_analysis_report(project: Project, fmt: str = "both") -> list[Path]:
             parameters={
                 "access_only_marking": report.marked,
                 "access_only_datasets": report.restricted,
+                "open_only": open_only,
                 "sections": report.sections,
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 **extra,

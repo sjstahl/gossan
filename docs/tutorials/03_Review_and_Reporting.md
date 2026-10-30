@@ -370,6 +370,32 @@ Open that file in Word, change the styles (Home, Styles, right-click, Modify), p
 
 Branding changes how the report looks, never what it says. The draft or **INTERNAL** footer line, with the page number, is added to every page (the cover too) after whatever your footer holds, and the banner stays in the document. If the logo or template file is missing or unreadable, `gossan report` stops with a message rather than producing an unbranded client document. PDF reports are not branded.
 
+## Quality check before delivery (`gossan qa`)
+
+```powershell
+gossan qa skeena_2026            # writes outputs/qa_report.pdf, .md and .json
+gossan qa skeena_2026 --strict   # also exit 1 on warnings (for scripts)
+```
+
+It prints each finding as **ERROR** (fix before handing over), **WARN** (look at it) or info, and saves an internal report that is never meant for clients.
+
+| Check | Severity | What it catches |
+|---|---|---|
+| Invalid claim polygon | error | A bowtie or self-intersecting claim outline in the AOI |
+| Data outside the AOI | error | A layer with nothing in or within 1 km of the AOI: usually a wrong CRS, a swapped x/y or another UTM zone |
+| Layer or raster with no CRS | error | Position cannot be trusted; assign one in QGIS or re-ingest with `--crs` |
+| Empty raster, raster that misses the AOI | error | Nothing to deliver |
+| Overlapping claims | warn | Overlaps above 100 m2 (BC tenure, and your own claim block). On US projects BLM claims overlap by design, so they are only noted |
+| Slivers, gaps between claims | warn | Polygons under 1,000 m2 or narrower than 5 m; holes and thin strips of 25 to 10,000 m2 between claims, usually a digitising error |
+| Layer with no provenance, empty or duplicate features, mostly-empty attributes | warn / info | Where did it come from, and is it usable |
+| Delivery package | error | A file changed since `gossan deliver` hashed it, an item with no licence on record, or restricted (Access Only) items in a package not marked internal |
+
+`gossan deliver` runs the same checks first and **stops if there is an error** (use `--skip-qa` only if you have checked it yourself). Change the thresholds under `parameters: qa:` in `project.yaml` (`overlap_tolerance_m2`, `min_area_m2`, `min_width_m`, `gap_min_m2`, `gap_max_m2`, `gap_close_m`, `empty_share`, `min_raster_coverage`). To repair geometry by hand, use QGIS: *Vector > Geometry Tools > Check Validity*, then *Fix Geometries*.
+
+**Limits:** a wrong CRS that happens to land inside the AOI (NAD27 against NAD83 moves points by tens to hundreds of metres) cannot be detected from the coordinates alone. Check the source's datum. Open lines such as faults are not tested for closure.
+
+---
+
 ## Drilling indicator on BC leads
 
 A plain `gossan harvest` on a BC project also downloads `drilling_notices`: Mines Act **Notice of Work** applications and permits that include surface exploration drilling. `gossan leads run` then adds, to every lead:

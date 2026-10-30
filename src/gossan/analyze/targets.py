@@ -43,6 +43,7 @@ from gossan.analyze.common import (
 )
 from gossan.analyze.drill_results import classify_holes
 from gossan.analyze.occurrences import unit_name
+from gossan.core.licensing import is_open_dataset
 from gossan.core.project import Project
 
 TARGETS_FILE = "target/targets.gpkg"
@@ -128,20 +129,21 @@ def _tenure_changes(project: Project) -> gpd.GeoDataFrame | None:
     return gdf.to_crs(project.config.crs) if len(gdf) else None
 
 
-def build_decisions(project: Project) -> TargetDecisionResult:
+def build_decisions(project: Project, *, open_only: bool = False) -> TargetDecisionResult:
     path = project.root / TARGETS_FILE
     if not path.exists():
         raise AnalysisError("no target/targets.gpkg (run 'gossan target' first)")
     targets = gpd.read_file(path, layer=TARGETS_LAYER, engine="pyogrio").to_crs(project.config.crs)
     if targets.empty:
         raise AnalysisError("target/targets.gpkg holds no targets")
+    records = project.provenance.read()
     extra = [c for c in ("knowledge_pctile", "knowledge_support") if c in targets]  # from the knowledge-driven score
     t = targets[["rank", "target_id", "area_ha", "mean_score", "max_score", "mean_spread", "n_known_occurrences", *extra, "geometry"]].copy()
     inputs: list[str] = []
     notes: list[list[str]] = [[] for _ in range(len(t))]
 
     # --- geology and structure ---------------------------------------------------------------
-    bedrock = read_layer(project, "bedrock_geology")
+    bedrock = read_layer(project, "bedrock_geology", open_only=open_only)
     if bedrock is not None:
         inputs.append("bedrock_geology")
         bedrock = bedrock.assign(unit=bedrock.apply(unit_name, axis=1))
@@ -157,7 +159,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             units.append(by_unit.idxmax())
             shares.append(round(float(by_unit.max() / geom.area), 3))
         t["main_unit"], t["main_unit_share"] = units, shares
-    faults = read_layer(project, "faults")
+    faults = read_layer(project, "faults", open_only=open_only)
     if faults is not None:
         inputs.append("faults")
         union = faults.geometry.union_all()
@@ -166,7 +168,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
     # --- geochemistry ------------------------------------------------------------------------
     scores_path = project.root / "analysis" / "analysis.gpkg"
     scores = None
-    if scores_path.exists():
+    if scores_path.exists() and (not open_only or is_open_dataset(records, "rgs")):
         try:
             scores = gpd.read_file(scores_path, layer="rgs_scores", engine="pyogrio").to_crs(project.config.crs)
         except Exception:  # noqa: BLE001 (no geochem layer yet: leave the columns out)
@@ -191,7 +193,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         t["n_geochem_anomalies"], t["best_sample_elements"] = n_anom, best_elems
 
     # --- ground: tenure, exclusions, reserves, crown grants ------------------------------------
-    tenure = read_layer(project, "mto_tenure")
+    tenure = read_layer(project, "mto_tenure", open_only=open_only)
     if tenure is not None:
         inputs.append("mto_tenure")
         mineral = tenure
@@ -206,7 +208,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             dates = pd.to_datetime(hit.get("GOOD_TO_DATE", pd.Series(dtype=str)), errors="coerce").dropna()
             expiry.append(dates.min().date().isoformat() if len(dates) else None)
         t["tenure_holders"], t["earliest_good_to"] = holders, expiry
-    excluded_layers = [(name, read_layer(project, name)) for name in EXCLUDED_LAYERS]
+    excluded_layers = [(name, read_layer(project, name, open_only=open_only)) for name in EXCLUDED_LAYERS]
     present = [(n, g) for n, g in excluded_layers if g is not None]
     unions = {n: g.geometry.union_all() for n, g in present}
     if present:
@@ -220,13 +222,13 @@ def build_decisions(project: Project) -> TargetDecisionResult:
                     what = ", ".join(sorted({str(v) for v in hit[label].dropna()})[:2]) if label else name
                     share = unions[name].intersection(geom).area / geom.area
                     notes[i].append(f"{share:.0%} in {name.replace('_', ' ')}: {what}")
-    reserves = read_layer(project, "reserve_sites")
+    reserves = read_layer(project, "reserve_sites", open_only=open_only)
     if reserves is not None:
         inputs.append("reserve_sites")
         if "SITE_MINERAL_IND" in reserves:
             reserves = reserves[reserves["SITE_MINERAL_IND"].astype(str).str.upper().eq("Y")]
         t["mineral_reserve_share"] = _share(t, reserves) if len(reserves) else 0.0
-    changes = _tenure_changes(project)
+    changes = _tenure_changes(project) if not open_only or is_open_dataset(records, "mto_tenure") else None
     if changes is not None:
         inputs.append("mto_tenure")
         summaries = []
@@ -239,14 +241,14 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             summaries.append("; ".join(f"{k.replace('_', ' ')} {int(v)}" for k, v in counts.items()))
             notes[i].append(f"tenure activity on or beside it between snapshots ({summaries[-1]}; {hit['after'].min()} to {hit['by'].max()})")
         t["tenure_changes"] = summaries
-    drilled = _drill_evidence(project, t)
+    drilled = None if open_only else _drill_evidence(project, t)
     if drilled is not None:
         inputs.append("aris_pdfs")  # the drill tables are digitized ARIS reports
         t["n_drill_holes"], t["drill_result"] = drilled["n"], drilled["text"]
         for i, note in enumerate(drilled["notes"]):
             if note:
                 notes[i].append(note)
-    grants = read_layer(project, "crown_grants")
+    grants = read_layer(project, "crown_grants", open_only=open_only)
     if grants is not None:
         inputs.append("crown_grants")
         if "LOT_STATUS" in grants:
@@ -255,7 +257,7 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         t["crown_grant_share"] = _share(t, grants) if len(grants) else 0.0
 
     # --- access ----------------------------------------------------------------------------------
-    roads = read_layer(project, "roads")
+    roads = read_layer(project, "roads", open_only=open_only)
     if roads is not None:
         inputs.append("roads")
         nearest = gpd.sjoin_nearest(t[["geometry"]], roads[[c for c in ("ROAD_CLASS",) if c in roads] + ["geometry"]], distance_col="d")
@@ -263,13 +265,13 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         t["dist_road_m"] = nearest["d"].round(0)
         if "ROAD_CLASS" in nearest:
             t["nearest_road_class"] = nearest["ROAD_CLASS"]
-    power = read_layer(project, "transmission_lines")
+    power = read_layer(project, "transmission_lines", open_only=open_only)
     if power is not None:
         inputs.append("transmission_lines")
         t["dist_power_m"] = t.geometry.distance(power.geometry.union_all()).round(0)
 
     # --- history ---------------------------------------------------------------------------------
-    aris = read_layer(project, "aris_index")
+    aris = read_layer(project, "aris_index", open_only=open_only)
     if aris is not None:
         inputs.append("aris_index")
         n, latest, spend = [], [], []
@@ -281,11 +283,11 @@ def build_decisions(project: Project) -> TargetDecisionResult:
             spend.append(round(float(dollars.sum()), 0) if len(near) else 0.0)
         t["n_aris_reports"], t["latest_report_year"], t["reported_spend_2002_dollars"] = n, latest, spend
     for layer, col in (("historic_notices", "n_historic_notices"), ("drilling_notices", "n_drilling_notices")):
-        g = read_layer(project, layer)
+        g = read_layer(project, layer, open_only=open_only)
         if g is not None:
             inputs.append(layer)
             t[col] = [len(near) for near in _near(t, g, HISTORY_RADIUS_M)]
-    minfile = read_layer(project, "minfile")
+    minfile = read_layer(project, "minfile", open_only=open_only)
     if minfile is not None:
         inputs.append("minfile")
         names = []
@@ -345,5 +347,5 @@ def build_decisions(project: Project) -> TargetDecisionResult:
         write_table(project, flat, "target_decisions"),
         write_json(project, summary, "target_decisions_summary"),
     ]
-    log_outputs(project, "targets", outputs, ["target", *inputs], {"geochem_radius_m": GEOCHEM_RADIUS_M, "history_radius_m": HISTORY_RADIUS_M})
+    log_outputs(project, "targets", outputs, ["target", *inputs], {"geochem_radius_m": GEOCHEM_RADIUS_M, "history_radius_m": HISTORY_RADIUS_M, "open_only": open_only})
     return TargetDecisionResult(table, summary, outputs)

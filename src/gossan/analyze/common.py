@@ -10,7 +10,7 @@ import geopandas as gpd
 import pandas as pd
 import pyogrio
 
-from gossan.core.licensing import derived_license_from
+from gossan.core.licensing import derived_license_from, is_open_dataset
 from gossan.core.project import Project
 
 ANALYSIS_DIR = "analysis"
@@ -34,9 +34,15 @@ def layer_names(project: Project) -> list[str]:
     return [str(n) for n in pyogrio.list_layers(gpkg)[:, 0]]
 
 
-def read_layer(project: Project, name: str, *, required: bool = False) -> gpd.GeoDataFrame | None:
+def read_layer(
+    project: Project, name: str, *, required: bool = False, open_only: bool = False
+) -> gpd.GeoDataFrame | None:
     """A ``data.gpkg`` layer in the project CRS; None (or ``AnalysisError`` if ``required``) when
-    the layer is absent or empty."""
+    the layer is absent, empty, or (with ``open_only``) carries no open licence."""
+    if open_only and not is_open_dataset(project.provenance.read(), name):
+        if required:
+            raise AnalysisError(f"layer {name} has a restricted or missing licence (cannot use with --open-only)")
+        return None
     if name in layer_names(project):
         gdf = gpd.read_file(project.data_gpkg, layer=name, engine="pyogrio")
         gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]

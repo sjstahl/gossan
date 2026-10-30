@@ -19,8 +19,10 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from gossan.core.licensing import access_only_datasets
+from gossan.analyze.targets import build_decisions
+from gossan.core.licensing import access_only_datasets, is_open_dataset
 from gossan.core.project import Project
+from gossan.deliver.items import output_licence, restricts
 from gossan.report.analysis_figures import (
     analysis_layer,
     catchment_map,
@@ -158,12 +160,21 @@ class Loaded:
     knowledge: dict | None = None
 
 
-def load(project: Project) -> Loaded:
+def load(project: Project, *, open_only: bool = False) -> Loaded:
     a = project.root / "analysis"
     t = project.root / "target"
+    records = project.provenance.read()
+    if open_only and (t / "targets.gpkg").exists():
+        if restricts(output_licence(records, "analysis/analysis.gpkg:target_decisions")) is not None:
+            build_decisions(project, open_only=True)
+            records = project.provenance.read()
     cv = _json(t / "cv_report.json")
     importance = pd.read_csv(t / "feature_importance.csv") if (t / "feature_importance.csv").exists() else None
     decisions = read_csv(project, "target_decisions")
+    inventory = read_csv(project, "inventory")
+    if open_only and inventory is not None:
+        inventory = inventory[inventory["dataset"].map(lambda d: is_open_dataset(records, str(d)))].reset_index(drop=True)
+        inventory = inventory if len(inventory) else None
     stale = []
     if project.data_gpkg.exists():
         newest_data = project.data_gpkg.stat().st_mtime
@@ -174,7 +185,7 @@ def load(project: Project) -> Loaded:
     if (t / "targets.gpkg").exists() and (a / "target_decisions.csv").exists() and (a / "target_decisions.csv").stat().st_mtime < (t / "targets.gpkg").stat().st_mtime:
         stale.append("target_decisions.csv (older than target/targets.gpkg)")
     return Loaded(
-        read_csv(project, "inventory"),
+        inventory,
         _json(a / "geochem_summary.json"),
         read_csv(project, "geochem_elements"),
         analysis_layer(project, "rgs_scores"),
@@ -190,9 +201,9 @@ def load(project: Project) -> Loaded:
         _json(a / "tenure_summary.json"),
         read_csv(project, "tenure_changes"),
         read_csv(project, "tenure_watch"),
-        _json(a / "drill_summary.json"),
-        read_csv(project, "digitize_priorities"),
-        _json(a / "digitize_priorities_summary.json"),
+        None if open_only else _json(a / "drill_summary.json"),
+        None if open_only else read_csv(project, "digitize_priorities"),
+        None if open_only else _json(a / "digitize_priorities_summary.json"),
         _json(a / "spectral_summary.json"),
         _json(t / "knowledge_report.json"),
     )
@@ -769,9 +780,12 @@ def _sec_method(project: Project, L: Loaded) -> list[Block]:
     ]
 
 
-def _sec_sources(project: Project, notices: list[str]) -> list[Block]:
+def _sec_sources(project: Project, notices: list[str], *, open_only: bool = False) -> list[Block]:
     blocks: list[Block] = [Heading("Data sources and licences")]
-    sources = data_sources(project.provenance.read())
+    records = project.provenance.read()
+    sources = data_sources(records)
+    if open_only:
+        sources = [r for r in sources if is_open_dataset(records, r.dataset)]
     if not sources:
         blocks.append(Para("No external datasets have been retrieved for this project."))
     else:
@@ -804,21 +818,21 @@ def number_figures(report: AnalysisReport) -> None:
             block.caption = f"Figure {n}. " + re.sub(r"^Figure \d+[a-z]?\. ", "", block.caption)
 
 
-def build_content(project: Project, assets: Path) -> AnalysisReport:
+def build_content(project: Project, assets: Path, *, open_only: bool = False) -> AnalysisReport:
     """Assemble the report's blocks; figures are written under ``assets``."""
-    L = load(project)
+    L = load(project, open_only=open_only)
     records = project.provenance.read()
     marking = decide_marking(project)  # also looks at files, in case the ledger is incomplete
-    restricted = access_only_datasets(records) or (marking.evidence if marking.marked else [])
+    restricted = [] if open_only else (access_only_datasets(records) or (marking.evidence if marking.marked else []))
     cfg = project.config
 
     report = AnalysisReport(
         title=f"{cfg.name}: analysis report",
         subtitle=" | ".join(filter(None, [f"Client: {cfg.client}" if cfg.client else "", f"CRS {cfg.crs}", f"Generated {datetime.now(UTC):%Y-%m-%d}", "Draft for geologist review"])),
-        marked=marking.marked or bool(restricted),
+        marked=False if open_only else (marking.marked or bool(restricted)),
         restricted=restricted,
     )
-    licences = " | ".join(r.license for r in records)
+    licences = " | ".join(r.license for r in records if not open_only or is_open_dataset(records, r.dataset))
     notices = [text for key, text in NOTICES.items() if key in licences]
     if restricted:
         notices.append(f"Access Only data (BC Data Catalogue) are used: {', '.join(restricted)}. No reproduction or redistribution without the Province's written permission.")
@@ -830,10 +844,10 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
         "spectral": lambda: _sec_spectral(project, L, assets),
         "targets": lambda: _sec_targets(project, L, assets),
         "tenure": lambda: _sec_tenure(project, L, assets),
-        "drilling": lambda: _sec_drilling(project, L, assets),
+        "drilling": lambda: [] if open_only else _sec_drilling(project, L, assets),
         "decisions": lambda: _sec_decisions(project, L, assets),
         "method": lambda: _sec_method(project, L),
-        "sources": lambda: _sec_sources(project, notices),
+        "sources": lambda: _sec_sources(project, notices, open_only=open_only),
     }
     for name, build in builders.items():
         if name in NEW_PAGE:
@@ -845,7 +859,7 @@ def build_content(project: Project, assets: Path) -> AnalysisReport:
             continue
         report.blocks += blocks
         report.sections.append(name)
-    report.inputs = _inputs(records)
+    report.inputs = [d for d in _inputs(records) if not open_only or is_open_dataset(records, d)]
     number_figures(report)
     return report
 

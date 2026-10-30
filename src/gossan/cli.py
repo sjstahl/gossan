@@ -68,6 +68,7 @@ from gossan.pipeline import (
     run_pipeline,
     summary_lines,
 )
+from gossan.qa import QA_JSON, QA_MD, QA_PDF, run_qa
 from gossan.report.analysis_render import build_analysis_report
 from gossan.report.branding import TEMPLATE_NAME, BrandingError, write_starter_template
 from gossan.report.branding import resolve as resolve_branding
@@ -470,6 +471,10 @@ def report(
         str | None,
         typer.Option(help="Feature this lead (tenure number from 'gossan leads run') in the PDF."),
     ] = None,
+    open_only: Annotated[
+        bool,
+        typer.Option("--open-only", help="For --kind analysis: build from open-licensed layers only, omitting ARIS and other Access Only inputs so the report can go in a client package."),
+    ] = False,
 ) -> None:
     """Build the pitch pack PDF: a draft executive summary of everything in the project.
 
@@ -495,7 +500,7 @@ def report(
         raise typer.BadParameter("use pdf, docx or both", param_hint="--format")
     try:
         if kind == "analysis":
-            for path in build_analysis_report(proj, fmt):
+            for path in build_analysis_report(proj, fmt, open_only=open_only):
                 typer.echo(f"Wrote {path}")
             return
         if fmt in {"docx", "both"}:
@@ -1130,7 +1135,11 @@ def deliver_cmd(
     include_internal: Annotated[
         bool, typer.Option("--include-internal", help="Also package Access Only and other restricted items (for use inside the company only; the package is marked INTERNAL).")
     ] = False,
+    open_only: Annotated[
+        bool, typer.Option("--open-only", help="Rebuild the decision table and analysis report from open-licensed layers only (omitting ARIS and other Access Only inputs) so they can go in a client package.")
+    ] = False,
     zip_: Annotated[bool, typer.Option("--zip", help="Also write <folder>.zip.")] = False,
+    skip_qa: Annotated[bool, typer.Option("--skip-qa", help="Build even if 'gossan qa' finds errors (invalid claim geometry, data outside the AOI, a layer with no CRS).")] = False,
 ) -> None:
     """Build the client package: a QGIS project, an offline interactive map, the data and the report.
 
@@ -1142,10 +1151,19 @@ def deliver_cmd(
     Access Only data (ARIS, minfile inventory) is left out and listed under LEFT OUT in the README.
     Leads are never packaged. --include-internal lifts the licence test for an internal copy and marks
     every face INTERNAL. Run 'gossan report' first if you want the report in the package.
+    Runs 'gossan qa' first and stops on an error (--skip-qa to override); warnings are shown.
     """
     proj = _open_project(project)
+    qa = run_qa(proj, package=False)
+    for f in qa.errors:
+        typer.secho(f"QA error: {f.subject} ({f.check}): {f.message}", fg="red", err=True)
+    if qa.errors and not skip_qa:
+        typer.secho(f"Not built: {len(qa.errors)} QA error(s); fix them (see outputs/qa_report.pdf) or pass --skip-qa", fg="red", err=True)
+        raise typer.Exit(1)
+    if qa.count("warn"):
+        typer.secho(f"QA: {qa.count('warn')} warning(s); see outputs/qa_report.pdf", fg="yellow", err=True)
     try:
-        result = build_deliverable(proj, out, include_internal=include_internal, make_zip=zip_)
+        result = build_deliverable(proj, out, include_internal=include_internal, make_zip=zip_, open_only=open_only)
     except DeliverError as e:
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
@@ -1157,6 +1175,42 @@ def deliver_cmd(
     if result.internal:
         typer.secho("  INTERNAL: contains restricted items; do not send it outside the company", fg="red", err=True)
     typer.echo(f"Open {result.folder / 'map.html'} in a browser, or the .qgs file in QGIS" + (f"; zipped to {result.zip_path}" if result.zip_path else ""))
+
+
+@app.command("qa")
+def qa_cmd(
+    project: Annotated[Path, typer.Argument(help="Project folder.")],
+    strict: Annotated[bool, typer.Option("--strict", help="Also exit 1 when there are warnings, not only errors.")] = False,
+    no_report: Annotated[bool, typer.Option("--no-report", help="Only print the findings; do not write outputs/qa_report.*.")] = False,
+) -> None:
+    """Check the project's data and any delivery package before they go to a client.
+
+    Writes outputs/qa_report.pdf, .md and .json (an internal record) and prints the findings; exits 1 when
+    there is an error (2 with --strict when there is a warning). Checked: the claim block (AOI polygons) for
+    invalid geometry, overlaps, slivers and gaps between claims; every data.gpkg layer for CRS, empty or
+    invalid or duplicate geometry, mostly-empty attributes, whether anything lies in the AOI (a wrong CRS shows
+    up here) and whether provenance names it; the rasters; and, if 'gossan deliver' has been run, that every
+    packaged file is unchanged since it was hashed, has a licence on record, and that nothing restricted is in
+    a package not marked internal. Thresholds: parameters: qa: in project.yaml (overlap_tolerance_m2,
+    min_area_m2, min_width_m, gap_min_m2, gap_max_m2, gap_close_m, empty_share, min_raster_coverage).
+    BLM claims overlap by design, so on a US project tenure overlaps are only noted. 'gossan deliver' runs
+    the same checks first (without the package test) and stops on an error unless you pass --skip-qa.
+    Manual fixes: repair geometry in QGIS (Vector > Geometry Tools > Check Validity, Fix Geometries).
+    """
+    proj = _open_project(project)
+    result = run_qa(proj, write=not no_report)
+    for f in result.findings:
+        colour = {"error": "red", "warn": "yellow", "info": None}[f.severity]
+        typer.secho(f"{f.severity.upper():5} {f.subject} ({f.check}): {f.message}", fg=colour)
+        if f.ids and f.severity != "info":
+            typer.echo(f"        {'; '.join(f.ids)}")
+    typer.echo(f"{result.count('error')} error(s), {result.count('warn')} warning(s), {result.count('info')} note(s)")
+    if not no_report:
+        typer.echo(f"Wrote {proj.outputs_dir / QA_PDF}, {QA_MD} and {QA_JSON}")
+    if result.errors:
+        raise typer.Exit(1)
+    if strict and result.count("warn"):
+        raise typer.Exit(2)
 
 
 @app.command("spectral")

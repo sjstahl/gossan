@@ -97,6 +97,34 @@ def test_the_package_holds_the_project_the_map_the_data_and_the_rasters(project)
     assert "targets" in record.parameters["included"]
 
 
+def test_open_only_rebuilds_decisions_and_report_from_open_layers_for_client_delivery(project):
+    from gossan.harvest.bc_provincial.wfs import ACCESS_ONLY_BC
+    from gossan.qa.checks import QaResult, check_package
+
+    aris = gpd.GeoDataFrame(
+        {"ARIS_NUMBER": [12345], "REPORT_YEAR": [2020], "MERGE_SPENT_2002": [50000.0]},
+        geometry=[Point(693200, 5618500)],
+        crs=CRS,
+    )
+    aris.to_file(project.data_gpkg, layer="aris_index", driver="GPKG", engine="pyogrio")
+    project.provenance.log(dataset="aris_index", source="BC Data Catalogue", identifier="aris_index", url=None, license=ACCESS_ONLY_BC, operation="fetch")
+    STEPS["targets"](project)
+    build_analysis_report(project, "pdf")
+
+    blocked = build_deliverable(project)
+    assert {i.key for i in blocked.withheld} == {"target_decisions", "report_pdf"}
+
+    clean = build_deliverable(project, open_only=True)
+    assert not clean.withheld and not clean.internal
+    assert "target_decisions" in gpkg_layers(clean.folder)
+    assert (clean.folder / "demo_analysis_report.pdf").is_file()
+    decisions_df = gpd.read_file(clean.folder / "data" / "deliverable.gpkg", layer="target_decisions", engine="pyogrio")
+    assert "n_aris_reports" not in decisions_df.columns and "ground_status" in decisions_df.columns
+    qa_res = QaResult()
+    check_package(project, qa_res)
+    assert qa_res.passed
+
+
 def test_a_report_without_restricted_data_goes_with_the_package(project):
     project.provenance.log(
         dataset="report_analysis_pdf", source="gossan", identifier="outputs/analysis_report.pdf", url=None, license="Derived product from harvested layers (Open Government Licence - British Columbia)",
@@ -352,3 +380,20 @@ def test_the_command_fails_cleanly_without_results(tmp_path, monkeypatch):
     result = runner.invoke(app, ["deliver", "demo"])
     assert result.exit_code == 1 and "nothing to deliver" in result.output
     assert not [i for i in plan(Project(Path("demo"))).included if i.group == "results"]
+
+
+def test_a_package_passes_its_own_qa_check_until_a_file_changes(project):
+    """``gossan qa`` verifies a package built by ``gossan deliver``: intact now, an error after an edit."""
+    from gossan.qa.checks import QaResult, check_package
+
+    def check() -> QaResult:
+        result = QaResult()
+        check_package(project, result)
+        return result
+
+    build_deliverable(project)
+    result = check()
+    assert result.passed and any("checked against the manifest" in f.message for f in result.findings)
+    victim = next((project.outputs_dir / "deliverable").glob("*.qgs"))
+    victim.write_text(victim.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    assert not check().passed

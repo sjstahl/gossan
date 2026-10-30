@@ -32,8 +32,10 @@ import rasterio
 from gossan import __version__
 from gossan.core.project import Project
 from gossan.core.revision import code_revision
+from gossan.analyze.targets import build_decisions
 from gossan.deliver import webmap
-from gossan.deliver.items import Item, Plan, plan
+from gossan.deliver.items import Item, Plan, _layers, output_licence, plan, restricts
+from gossan.report.analysis_render import build_analysis_report
 from gossan.deliver.qgis_project import RasterLayer, VectorLayer, write_project
 from gossan.deliver.styles import STYLES
 
@@ -122,8 +124,31 @@ def _readme(project: Project, result: DeliverResult, project_file: str, notice: 
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_deliverable(project: Project, out: Path | None = None, *, include_internal: bool = False, make_zip: bool = False) -> DeliverResult:
+def _rebuild_open_outputs(project: Project) -> None:
+    """Rebuild the decision table and any existing analysis report from open-licensed layers only."""
+    root = project.root
+    if "targets_top" in _layers(root / "target" / "targets.gpkg"):
+        if restricts(output_licence(project.provenance.read(), "analysis/analysis.gpkg:target_decisions")) is not None or not (root / "analysis" / "analysis.gpkg").is_file():
+            build_decisions(project, open_only=True)
+    has_pdf = (project.outputs_dir / "analysis_report.pdf").is_file()
+    has_docx = (project.outputs_dir / "analysis_report.docx").is_file()
+    if has_pdf or has_docx:
+        records = project.provenance.read()
+        pdf_restricted = has_pdf and restricts(output_licence(records, "outputs/analysis_report.pdf")) is not None
+        docx_restricted = has_docx and restricts(output_licence(records, "outputs/analysis_report.docx")) is not None
+        if pdf_restricted or docx_restricted:
+            fmt = "both" if (has_pdf and has_docx) else ("pdf" if has_pdf else "docx")
+            build_analysis_report(project, fmt, open_only=True)
+
+
+def build_deliverable(
+    project: Project, out: Path | None = None, *, include_internal: bool = False, make_zip: bool = False, open_only: bool = False
+) -> DeliverResult:
     """Build the package. Raises ``DeliverError`` when there is nothing to deliver or the folder is not ours to replace."""
+    if open_only and include_internal:
+        raise DeliverError("cannot combine --open-only and --include-internal")
+    if open_only:
+        _rebuild_open_outputs(project)
     the_plan: Plan = plan(project, include_internal=include_internal)
     results = [i for i in the_plan.included if i.group == "results"]
     if not results:
