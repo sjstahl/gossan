@@ -152,3 +152,77 @@ def test_the_command_and_the_report_show_it(project):
         text = " ".join(" ".join(page.get_text() for page in pdf).split())
     assert "A second opinion: the knowledge-driven score" in text and "It never looks at the occurrences" in text
     assert "Near faults" in text and "AUC alone" in text and "Random forest" in text and "Knowledge score" in text
+
+
+# --- the empirical host layer and its held-out checks ----------------------------------------------------------------------
+
+
+def test_the_empirical_host_rule_rises_with_the_units_share_of_occurrences():
+    units = np.array([0] * 50 + [1] * 50 + [-1] * 10)
+    positives = np.arange(50, 60)  # ten occurrences, all in unit 1
+    mu = kn.empirical_host(units, positives)
+    assert mu[:50].tolist() == [kn.OUTSIDE_HOST] * 50  # holds none: no better than chance
+    assert mu[-10:].tolist() == [kn.OUTSIDE_HOST] * 10  # no unit: no information
+    assert kn.OUTSIDE_HOST < mu[60] < 1  # holds all ten
+    assert mu[55] < mu[60]  # an occurrence leaves itself out
+    assert kn.empirical_host(np.array([0, 0, 1, 1]), np.array([], dtype=int)).tolist() == [kn.OUTSIDE_HOST] * 4  # no occurrences, no evidence
+
+
+def test_the_default_is_still_the_named_host_units():
+    assert KnowledgeConfig().host_mode == "named"
+
+
+def test_an_empirical_host_layer_is_fitted_marked_in_sample_and_not_circular(project):
+    k = run(project, host_mode="empirical").knowledge
+    host = next(layer for layer in k["layers"] if layer["layer"] == "host")
+    assert host["in_sample"] is True and host["weight"] == 3 and host["auc"] is not None
+    assert k["host_mode"] == "empirical" and k["host_learned_from_occurrences"] and not k["circular_host_units"]
+    assert "in-sample" in k["note"] and "flatter" not in k["note"]
+    c = k["checks"]
+    assert c["held_out_host"] and c["cv_gap_m"] >= 0 and c["n_folds_scored"] >= 2 and c["auc_fold_mean"] is not None
+    assert c["host_layer_auc_fold_mean"] is not None
+    named = run(project, host_units=["aldridge"]).knowledge
+    assert not any(layer.get("in_sample") for layer in named["layers"]) and "held_out_host" not in named["checks"]
+
+
+def test_empirical_mode_ignores_named_host_units(project):
+    k = run(project, host_mode="empirical", host_units=["aldridge"]).knowledge
+    assert k["host_learned_from_occurrences"] and not k["circular_host_units"]
+
+
+def test_the_held_out_figure_does_not_see_the_test_blocks_occurrences(project):
+    """Give every spatial block its own 'unit'. Learned from all the occurrences the host layer ranks them perfectly
+    (in-sample); relearned from the training blocks only it knows nothing about the test blocks, and the fold figure
+    falls to chance. A host layer that was not refitted would keep the flattering figure."""
+    result = run_target(project, config(), cross_validate=False)
+    stack, grid, cfg = result.stack, result.grid, result.cfg
+    y = np.zeros(grid.n_cells, dtype=int)
+    y[stack.positives] = 1
+    block = cfg.block_size_m or kn.default_block_size(grid)
+    units = np.unique(kn.make_blocks(grid, block), return_inverse=True)[1]
+    mu = kn.empirical_host(units, stack.positives)
+    for fitted in (True, False):
+        layers = [kn.Layer("host", mu, 3.0, 3.0, 1.0, fitted=fitted)]
+        checks = kn._checks(kn.combine(layers), y, stack, grid, cfg, layers, units)
+        assert checks["auc"] > 0.7  # in-sample either way
+        if fitted:
+            assert checks["auc_fold_mean"] == pytest.approx(0.5, abs=0.02) and checks["host_layer_auc_fold_mean"] == pytest.approx(0.5, abs=0.02)
+        else:
+            assert checks["auc_fold_mean"] > 0.7  # the circular figure
+
+
+def test_without_two_bedrock_units_the_empirical_layer_is_skipped_with_a_reason(project, monkeypatch):
+    monkeypatch.setattr(kn, "_units", lambda *a, **k: None)
+    k = run(project, host_mode="empirical").knowledge
+    assert "host" not in {layer["layer"] for layer in k["layers"]} and "at least two units" in k["skipped"]["host"]
+    assert "held_out_host" not in k["checks"]
+
+
+def test_the_report_says_the_host_rule_was_learned(project):
+    run(project, host_mode="empirical")
+    assert runner.invoke(app, ["analyze", "demo", "--steps", "targets"]).exit_code == 0
+    from gossan.report.analysis_render import build_analysis_report
+
+    path = build_analysis_report(project, "pdf")[0]
+    text = " ".join("\n".join(p.get_text() for p in pymupdf.open(path)).split())
+    assert "host-rock rule is learned from the occurrences" in text and "(in-sample)" in text and "refitted inside each fold" in text

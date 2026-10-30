@@ -206,6 +206,13 @@ class KnowledgeConfig(BaseModel):
     #: This is the geologist's input; choosing units because occurrences sit in them makes the score's
     #: own check circular.
     host_units: list[str] = []
+    #: Where the host layer comes from. "named": the ``host_units`` above (the geologist's choice; its
+    #: check is circular if occurrences prompted the choice). "empirical": learned from the known
+    #: occurrences, as how strongly each bedrock unit holds them relative to its area. The
+    #: cross-validation then relearns it for every fold from the training blocks only (leaving a gap
+    #: around each test block), so the held-out figures are not circular; the all-cell AUC and the
+    #: layer's own AUC are in-sample and the report says so. Not yet evaluated on real areas.
+    host_mode: Literal["named", "empirical"] = "named"
     #: Replace individual layer weights (fault, contact, intrusive, host, geochem, magnetics, alteration);
     #: 0 drops a layer.
     weights: dict[str, float] = {}

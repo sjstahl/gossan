@@ -572,13 +572,18 @@ def _knowledge_blocks(L: Loaded) -> list[Block]:
         Para(
             "The forest learns from the known occurrences, so it can only repeat what they share. This score is geological reasoning written down: each line of evidence "
             f"is turned into a 0 to 1 favourability by a stated rule and the lines are averaged with set weights (deposit model: {k['deposit_model'].replace('_', ' ')}{host}). "
-            "It never looks at the occurrences, so they are an independent check on it. Weights are starting points from general exploration geology, not tuned on this area."
+            + (
+                "Its host-rock rule is learned from the occurrences, so the held-out figures below relearn it for each fold from the training blocks only. "
+                if k.get("host_learned_from_occurrences")
+                else "It never looks at the occurrences, so they are an independent check on it. "
+            )
+            + "Weights are starting points from general exploration geology, not tuned on this area."
         )
     )
     rows = [["Evidence", "Weight", "Covers", "AUC alone"]]
     for layer in k["layers"]:
         auc = layer.get("auc")
-        rows.append([layer["label"], f"{layer['weight_used']:g}", f"{layer['coverage_pct']:.0f}%", "n/a" if auc is None else f"{auc:.2f}"])
+        rows.append([layer["label"], f"{layer['weight_used']:g}", f"{layer['coverage_pct']:.0f}%", "n/a" if auc is None else f"{auc:.2f}" + (" (in-sample)" if layer.get("in_sample") else "")])
     blocks.append(Table(rows, [2.6, 0.8, 0.8, 1.0], "AUC alone: how well that rule by itself ranks the known occurrences above other cells. 0.5 means it does not bear out here; below 0.5 the occurrences sit where the rule says they should not, and its weight is worth a second look."))
     c, cv = k.get("checks") or {}, L.target_cv or {}
 
@@ -592,7 +597,7 @@ def _knowledge_blocks(L: Loaded) -> list[Block]:
     cap_f = "n/a" if cv.get("capture_top5_mean") is None else f"{cv['capture_top5_mean']:.0%}"
     cap_k = "n/a" if c.get("capture_top5_fold_mean") is None else f"{c['capture_top5_fold_mean']:.0%}"
     compare.append(["Top-5% capture", cap_f, cap_k])
-    blocks.append(Table(compare, [2.0, 1.6, 1.6], "Same spatial folds for both. The knowledge score is not fitted, so its figures are its skill on those blocks."))
+    blocks.append(Table(compare, [2.0, 1.6, 1.6], "Same spatial folds for both. " + ("The host rule is refitted inside each fold, so these are held-out figures." if k.get("host_learned_from_occurrences") else "The knowledge score is not fitted, so its figures are its skill on those blocks.")))
     rho = k.get("rank_correlation_with_forest")
     agree = f"Their rank correlation is {rho:.2f}; " if rho is not None else ""
     support = ""
