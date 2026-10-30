@@ -30,14 +30,14 @@ import numpy as np
 import rasterio
 
 from gossan import __version__
+from gossan.analyze.targets import build_decisions
 from gossan.core.project import Project
 from gossan.core.revision import code_revision
-from gossan.analyze.targets import build_decisions
 from gossan.deliver import webmap
 from gossan.deliver.items import Item, Plan, _layers, output_licence, plan, restricts
-from gossan.report.analysis_render import build_analysis_report
 from gossan.deliver.qgis_project import RasterLayer, VectorLayer, write_project
 from gossan.deliver.styles import STYLES
+from gossan.report.analysis_render import build_analysis_report
 
 MANIFEST = "manifest.json"
 GPKG = "data/deliverable.gpkg"
@@ -127,9 +127,11 @@ def _readme(project: Project, result: DeliverResult, project_file: str, notice: 
 def _rebuild_open_outputs(project: Project) -> None:
     """Rebuild the decision table and any existing analysis report from open-licensed layers only."""
     root = project.root
-    if "targets_top" in _layers(root / "target" / "targets.gpkg"):
-        if restricts(output_licence(project.provenance.read(), "analysis/analysis.gpkg:target_decisions")) is not None or not (root / "analysis" / "analysis.gpkg").is_file():
-            build_decisions(project, open_only=True)
+    if "targets_top" in _layers(root / "target" / "targets.gpkg") and (
+        restricts(output_licence(project.provenance.read(), "analysis/analysis.gpkg:target_decisions")) is not None
+        or not (root / "analysis" / "analysis.gpkg").is_file()
+    ):
+        build_decisions(project, open_only=True)
     has_pdf = (project.outputs_dir / "analysis_report.pdf").is_file()
     has_docx = (project.outputs_dir / "analysis_report.docx").is_file()
     if has_pdf or has_docx:

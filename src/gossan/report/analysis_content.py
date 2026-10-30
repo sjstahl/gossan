@@ -164,10 +164,13 @@ def load(project: Project, *, open_only: bool = False) -> Loaded:
     a = project.root / "analysis"
     t = project.root / "target"
     records = project.provenance.read()
-    if open_only and (t / "targets.gpkg").exists():
-        if restricts(output_licence(records, "analysis/analysis.gpkg:target_decisions")) is not None:
-            build_decisions(project, open_only=True)
-            records = project.provenance.read()
+    if (
+        open_only
+        and (t / "targets.gpkg").exists()
+        and restricts(output_licence(records, "analysis/analysis.gpkg:target_decisions")) is not None
+    ):
+        build_decisions(project, open_only=True)
+        records = project.provenance.read()
     cv = _json(t / "cv_report.json")
     importance = pd.read_csv(t / "feature_importance.csv") if (t / "feature_importance.csv").exists() else None
     decisions = read_csv(project, "target_decisions")
