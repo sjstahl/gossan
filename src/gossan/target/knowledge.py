@@ -270,6 +270,7 @@ def _checks(
     for key in ("auc", "auc_effort_matched", "capture_top5"):
         vals = [r[key] for r in rows if key in r]
         out[f"{key}_fold_mean"], out[f"{key}_fold_std"] = _summ(vals) if vals else (None, None)
+        out[f"{key}_by_fold"] = [round(v, 4) for v in vals]  # the same folds every run, so two runs can be compared fold by fold
     if refit:
         out["held_out_host"] = True
         out["host_layer_auc_fold_mean"] = float(np.mean(host_aucs)) if host_aucs else None

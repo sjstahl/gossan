@@ -397,3 +397,18 @@ def test_a_package_passes_its_own_qa_check_until_a_file_changes(project):
     victim = next((project.outputs_dir / "deliverable").glob("*.qgs"))
     victim.write_text(victim.read_text(encoding="utf-8") + " ", encoding="utf-8")
     assert not check().passed
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["gossan.pipeline", "gossan.report.analysis_render", "gossan.report.analysis_content", "gossan.deliver", "gossan.deliver.items", "gossan.analyze", "gossan.qa"],
+)
+def test_every_module_imports_on_its_own(module):
+    """The tests import ``gossan.cli`` first, which hid an import cycle between the analysis report and the package
+    builder; each of these must import in a fresh interpreter, whatever was imported before it."""
+    import subprocess
+    import sys
+
+    result = subprocess.run([sys.executable, "-I", "-c", f"import {module}"], capture_output=True, text=True, timeout=120, check=False)
+    assert result.returncode == 0, result.stderr[-600:]
+    assert subprocess.run([sys.executable, "-I", "-c", "from gossan.deliver import build_deliverable, DeliverError, DeliverResult"], capture_output=True, check=False).returncode == 0
