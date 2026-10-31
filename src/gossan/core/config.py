@@ -211,7 +211,10 @@ class KnowledgeConfig(BaseModel):
     #: occurrences, as how strongly each bedrock unit holds them relative to its area. The
     #: cross-validation then relearns it for every fold from the training blocks only (leaving a gap
     #: around each test block), so the held-out figures are not circular; the all-cell AUC and the
-    #: layer's own AUC are in-sample and the report says so. Not yet evaluated on real areas.
+    #: layer's own AUC are in-sample and the report says so. On four BC areas (docs/validation/host_mode_2026-10.md) it
+    #: raised the knowledge score's held-out AUC by 0.02 to 0.10 and its effort-matched AUC by 0.01 to 0.05, in
+    #: every area but with five folds each, so treat it as consistent rather than proven; it also makes the score
+    #: depend on the occurrences. The default stays "named".
     host_mode: Literal["named", "empirical"] = "named"
     #: Replace individual layer weights (fault, contact, intrusive, host, geochem, magnetics, alteration);
     #: 0 drops a layer.

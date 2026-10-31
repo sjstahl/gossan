@@ -1,0 +1,355 @@
+{
+  "region": "stewart",
+  "box_deg": [
+    -130.5,
+    55.7,
+    -129.3,
+    56.6
+  ],
+  "crs": "EPSG:32609",
+  "occurrence_class_setting": "auto",
+  "runs": {
+    "named": {
+      "label": "named",
+      "overrides": {
+        "knowledge": "enabled=True deposit_model='generic' host_units=[] host_mode='named' weights={} fault_range_m=3000.0 contact_range_m=1500.0 intrusive_range_m=5000.0"
+      },
+      "n_cells": 746810,
+      "resolution_m": 100.0,
+      "n_positives": 710,
+      "n_occurrences_in_layer": 710,
+      "features": [
+        "dist_fault",
+        "dist_thrust",
+        "dist_contact",
+        "dist_intrusive",
+        "unit_age_ma",
+        "elevation",
+        "slope",
+        "relief",
+        "rgs_idx_sediment_hosted_zn_pb",
+        "rgs_idx_polymetallic_vein",
+        "rgs_idx_cu_porphyry_skarn",
+        "rgs_idx_gold_vein",
+        "rgs_idx_rare_earth_carbonatite",
+        "rgs_pc1",
+        "rgs_pc2",
+        "rgs_pc3",
+        "unit_favourability"
+      ],
+      "features_skipped": {
+        "tenure_density": "exploration effort: not used (effort: ignore)",
+        "aris_density": "exploration effort: not used (effort: ignore)",
+        "magnetics": "no a magnetic grid in rasters/ (magnetics, nrcan_magnetics, ...): see 'gossan harvest --source nrcan_geophysics' for where to get one and 'gossan ingest' to add it",
+        "rasters": "no rasters in rasters/"
+      },
+      "cv": {
+        "n_folds_scored": 5,
+        "auc_mean": 0.7392082244641645,
+        "auc_std": 0.04112619414347702,
+        "auc_effort_matched_mean": 0.6145993205612678,
+        "auc_effort_matched_std": 0.0280537234851993,
+        "capture_top5_mean": 0.12379238061243167,
+        "capture_top5_std": 0.024904956208940877,
+        "auc_vs_barren_mean": null,
+        "n_barren_cells": 0,
+        "block_size_m": 18975.0,
+        "buffer_m": 2000.0
+      },
+      "n_targets": 99,
+      "knowledge": {
+        "available": true,
+        "layers": [
+          {
+            "layer": "fault",
+            "label": "Near faults",
+            "weight": 2.0,
+            "weight_used": 2.0,
+            "coverage_pct": 100.0,
+            "auc": 0.715,
+            "in_sample": false
+          },
+          {
+            "layer": "contact",
+            "label": "Near unit contacts",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.694,
+            "in_sample": false
+          },
+          {
+            "layer": "geochem",
+            "label": "Stream-sediment pathfinders",
+            "weight": 3.0,
+            "weight_used": 1.56,
+            "coverage_pct": 51.9,
+            "auc": 0.658,
+            "in_sample": false
+          }
+        ],
+        "checks": {
+          "auc": 0.7590288750327996,
+          "n_folds_scored": 5,
+          "auc_fold_mean": 0.7489120555388011,
+          "auc_fold_std": 0.0813771283010898,
+          "auc_by_fold": [
+            0.8452,
+            0.6438,
+            0.7903,
+            0.66,
+            0.8052
+          ],
+          "auc_effort_matched_fold_mean": 0.6206031630228628,
+          "auc_effort_matched_fold_std": 0.058727520026869595,
+          "auc_effort_matched_by_fold": [
+            0.708,
+            0.5958,
+            0.6671,
+            0.5451,
+            0.587
+          ],
+          "capture_top5_fold_mean": 0.18727812017754003,
+          "capture_top5_fold_std": 0.14407113387042014,
+          "capture_top5_by_fold": [
+            0.448,
+            0.0559,
+            0.2258,
+            0.0647,
+            0.1419
+          ]
+        },
+        "rank_correlation_with_forest": 0.674,
+        "top_overlap_with_forest": 0.16,
+        "n_knowledge_targets": 23
+      },
+      "top_importances": [
+        [
+          "unit_favourability",
+          0.25894254563389935
+        ],
+        [
+          "dist_fault",
+          0.10370018519060356
+        ],
+        [
+          "dist_intrusive",
+          0.10213314027209316
+        ],
+        [
+          "dist_contact",
+          0.09102965096148859
+        ],
+        [
+          "unit_age_ma",
+          0.058787684101497734
+        ],
+        [
+          "elevation",
+          0.05667122303801718
+        ]
+      ]
+    },
+    "empirical": {
+      "label": "empirical",
+      "overrides": {
+        "knowledge": "enabled=True deposit_model='generic' host_units=[] host_mode='empirical' weights={} fault_range_m=3000.0 contact_range_m=1500.0 intrusive_range_m=5000.0"
+      },
+      "n_cells": 746810,
+      "resolution_m": 100.0,
+      "n_positives": 710,
+      "n_occurrences_in_layer": 710,
+      "features": [
+        "dist_fault",
+        "dist_thrust",
+        "dist_contact",
+        "dist_intrusive",
+        "unit_age_ma",
+        "elevation",
+        "slope",
+        "relief",
+        "rgs_idx_sediment_hosted_zn_pb",
+        "rgs_idx_polymetallic_vein",
+        "rgs_idx_cu_porphyry_skarn",
+        "rgs_idx_gold_vein",
+        "rgs_idx_rare_earth_carbonatite",
+        "rgs_pc1",
+        "rgs_pc2",
+        "rgs_pc3",
+        "unit_favourability"
+      ],
+      "features_skipped": {
+        "tenure_density": "exploration effort: not used (effort: ignore)",
+        "aris_density": "exploration effort: not used (effort: ignore)",
+        "magnetics": "no a magnetic grid in rasters/ (magnetics, nrcan_magnetics, ...): see 'gossan harvest --source nrcan_geophysics' for where to get one and 'gossan ingest' to add it",
+        "rasters": "no rasters in rasters/"
+      },
+      "cv": {
+        "n_folds_scored": 5,
+        "auc_mean": 0.7392082244641645,
+        "auc_std": 0.04112619414347702,
+        "auc_effort_matched_mean": 0.6145993205612678,
+        "auc_effort_matched_std": 0.0280537234851993,
+        "capture_top5_mean": 0.12379238061243167,
+        "capture_top5_std": 0.024904956208940877,
+        "auc_vs_barren_mean": null,
+        "n_barren_cells": 0,
+        "block_size_m": 18975.0,
+        "buffer_m": 2000.0
+      },
+      "n_targets": 99,
+      "knowledge": {
+        "available": true,
+        "layers": [
+          {
+            "layer": "fault",
+            "label": "Near faults",
+            "weight": 2.0,
+            "weight_used": 2.0,
+            "coverage_pct": 100.0,
+            "auc": 0.715,
+            "in_sample": false
+          },
+          {
+            "layer": "contact",
+            "label": "Near unit contacts",
+            "weight": 1.0,
+            "weight_used": 1.0,
+            "coverage_pct": 100.0,
+            "auc": 0.694,
+            "in_sample": false
+          },
+          {
+            "layer": "host",
+            "label": "In named host units",
+            "weight": 3.0,
+            "weight_used": 3.0,
+            "coverage_pct": 100.0,
+            "auc": 0.638,
+            "in_sample": true
+          },
+          {
+            "layer": "geochem",
+            "label": "Stream-sediment pathfinders",
+            "weight": 3.0,
+            "weight_used": 1.56,
+            "coverage_pct": 51.9,
+            "auc": 0.658,
+            "in_sample": false
+          }
+        ],
+        "checks": {
+          "auc": 0.7856266822217315,
+          "n_folds_scored": 5,
+          "auc_fold_mean": 0.7706049420962325,
+          "auc_fold_std": 0.06544298319726562,
+          "auc_by_fold": [
+            0.8651,
+            0.6963,
+            0.7578,
+            0.7088,
+            0.8251
+          ],
+          "auc_effort_matched_fold_mean": 0.6271226444484388,
+          "auc_effort_matched_fold_std": 0.05426318888970865,
+          "auc_effort_matched_by_fold": [
+            0.7218,
+            0.634,
+            0.6318,
+            0.579,
+            0.569
+          ],
+          "capture_top5_fold_mean": 0.22616578198290896,
+          "capture_top5_fold_std": 0.12994732398798708,
+          "capture_top5_by_fold": [
+            0.48,
+            0.1329,
+            0.1742,
+            0.2086,
+            0.1351
+          ],
+          "held_out_host": true,
+          "host_layer_auc_fold_mean": 0.6566487185090734,
+          "cv_gap_m": 2000.0,
+          "folds_skipped": []
+        },
+        "rank_correlation_with_forest": 0.65,
+        "top_overlap_with_forest": 0.04,
+        "n_knowledge_targets": 41
+      },
+      "top_importances": [
+        [
+          "unit_favourability",
+          0.25894254563389935
+        ],
+        [
+          "dist_fault",
+          0.10370018519060356
+        ],
+        [
+          "dist_intrusive",
+          0.10213314027209316
+        ],
+        [
+          "dist_contact",
+          0.09102965096148859
+        ],
+        [
+          "unit_age_ma",
+          0.058787684101497734
+        ],
+        [
+          "elevation",
+          0.05667122303801718
+        ]
+      ]
+    }
+  },
+  "comparison": {
+    "auc": {
+      "named": 0.7489120555388011,
+      "empirical": 0.7706049420962325,
+      "paired": {
+        "mean": 0.021719999999999982,
+        "std": 0.034011645064595135,
+        "n_folds": 5,
+        "n_better": 4
+      }
+    },
+    "auc_effort_matched": {
+      "named": 0.6206031630228628,
+      "empirical": 0.6271226444484388,
+      "paired": {
+        "mean": 0.006519999999999993,
+        "std": 0.03223518264257238,
+        "n_folds": 5,
+        "n_better": 3
+      }
+    },
+    "capture_top5": {
+      "named": 0.18727812017754003,
+      "empirical": 0.22616578198290896,
+      "paired": {
+        "mean": 0.0389,
+        "std": 0.0755032449633789,
+        "n_folds": 5,
+        "n_better": 3
+      }
+    },
+    "host_layer_auc_held_out": 0.6566487185090734,
+    "host_layer_auc_in_sample": 0.638,
+    "host_layer_present": true,
+    "forest_identical": true,
+    "forest": {
+      "auc_mean": 0.7392082244641645,
+      "auc_effort_matched_mean": 0.6145993205612678,
+      "capture_top5_mean": 0.12379238061243167
+    }
+  },
+  "n_positives": 710,
+  "n_cells": 746810,
+  "seconds": {
+    "target_named": 296.6,
+    "target_empirical": 375.4
+  }
+}
