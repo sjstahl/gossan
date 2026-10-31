@@ -511,7 +511,7 @@ def report(
     if fmt in {"pdf", "both"}:
         try:
             typer.echo(f"Wrote {build_pdf(proj, lead)}")
-        except ReportError as e:
+        except (ReportError, BrandingError) as e:
             typer.secho(f"Error: {e}", fg="red", err=True)
             raise typer.Exit(1) from e
 
@@ -1164,7 +1164,7 @@ def deliver_cmd(
         typer.secho(f"QA: {qa.count('warn')} warning(s); see outputs/qa_report.pdf", fg="yellow", err=True)
     try:
         result = build_deliverable(proj, out, include_internal=include_internal, make_zip=zip_, open_only=open_only)
-    except DeliverError as e:
+    except (DeliverError, BrandingError) as e:
         typer.secho(f"Error: {e}", fg="red", err=True)
         raise typer.Exit(1) from e
     typer.echo(f"Package: {result.folder}")

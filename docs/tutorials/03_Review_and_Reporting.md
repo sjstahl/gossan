@@ -368,7 +368,7 @@ gossan template <project>        # writes <project>/branding/template.docx
 
 Open that file in Word, change the styles (Home, Styles, right-click, Modify), page setup, header and footer, save it as `.docx` (not `.dotx`), then set `branding.template: branding/template.docx`. The report is then built inside your file and takes its styles, page setup, header and footer as they are; the template's own text is dropped.
 
-Branding changes how the report looks, never what it says. The draft or **INTERNAL** footer line, with the page number, is added to every page (the cover too) after whatever your footer holds, and the banner stays in the document. If the logo or template file is missing or unreadable, `gossan report` stops with a message rather than producing an unbranded client document. PDF reports are not branded.
+Branding changes how the report looks, never what it says. The draft or **INTERNAL** footer line, with the page number, is added to every page (the cover too) after whatever your footer holds, and the banner stays in the document. If the logo or template file is missing or unreadable, `gossan report` stops with a message rather than producing an unbranded client document. The same settings brand the **PDF** reports (the pitch pack and the analysis report): the accent colour on headings and table headers, the company name and logo above a rule in the accent colour on every page, an optional cover page, and the footer. A PDF's footer always carries the marking line; `footer_text` replaces the plain draft line, or follows the INTERNAL line on a report that uses Access Only data. Company templates (`branding.template`) apply to Word only.
 
 ## Quality check before delivery (`gossan qa`)
 

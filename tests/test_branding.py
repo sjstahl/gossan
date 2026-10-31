@@ -198,9 +198,11 @@ def test_a_missing_or_unreadable_logo_or_template_stops_the_report_with_a_clear_
         new_document(Branding(template=tmp_path / "bad.docx"))
 
 
-def test_a_pdf_only_report_does_not_need_the_branding_files(project):
+def test_a_pdf_report_needs_the_branding_files_too(project):
+    """PDF reports are branded since the PDF branding work, so a missing logo stops them as it stops the Word report."""
     brand(project, logo="nope.png")
-    assert runner.invoke(app, ["report", "demo", "--kind", "analysis", "--format", "pdf"]).exit_code == 0  # Word branding only
+    result = runner.invoke(app, ["report", "demo", "--kind", "analysis", "--format", "pdf"])
+    assert result.exit_code == 1 and "branding.logo" in result.output + (result.stderr or "")
 
 
 def test_settings_are_validated_and_old_projects_load(project):

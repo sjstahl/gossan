@@ -158,7 +158,7 @@ class TenureConfig(BaseModel):
 
 
 class BrandingConfig(BaseModel):
-    """The company's look for Word reports (``gossan.report.branding``). Branding never removes or weakens
+    """The company's look for Word and PDF reports (``gossan.report.branding``, ``branding_pdf``). Fonts and ``template`` are Word-only. Branding never removes or weakens
     the Access Only marking or the draft banner: it changes appearance, not the disclaimers."""
 
     model_config = ConfigDict(extra="forbid")

@@ -55,6 +55,13 @@ from gossan.core.project import Project
 from gossan.leads.pack import reports_for_lead
 from gossan.leads.samples import SampleEntry, collect_samples
 from gossan.report.assets import finite_range, layer_or_none, overview_map, raster_map
+from gossan.report.branding import resolve as resolve_branding
+from gossan.report.branding_pdf import (
+    brand_styles,
+    cover_story,
+    page_decorations,
+    top_margin,
+)
 from gossan.report.builder import data_sources
 from gossan.report.licensing import decide_marking
 
@@ -142,7 +149,7 @@ def _table(rows: list[list[object]], widths: list[float], styles: dict, *, heade
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
     ]
     if header:
-        cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6ecf3")))
+        cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(styles.get("header_fill", "#e6ecf3"))))
     if zebra:
         cmds += [("BACKGROUND", (0, i), (-1, i), colors.HexColor("#f7f7f7")) for i in range(2, len(rows), 2)]
     t.setStyle(TableStyle(cmds))
@@ -675,24 +682,23 @@ def _page_decorations(project_name: str, marked: bool):
 def build_pdf(project: Project, lead_id: str | None = None, today: datetime | None = None) -> Path:
     """Write ``outputs/report.pdf`` and log it to provenance. Raises ``ReportError`` for an unknown lead."""
     today = today or datetime.now(UTC)
-    st = _styles()
+    brand = resolve_branding(project)  # a missing or unreadable logo raises BrandingError, as for the Word reports
+    st = brand_styles(_styles(), brand)
     outputs = project.outputs_dir
     outputs.mkdir(exist_ok=True)
     assets = outputs / ASSETS_DIR
     facts, lead_geom, _numbers = gather(project, lead_id, assets)
 
     cfg = project.config
-    story: list = [
-        Paragraph(escape(cfg.name), st["title"]),
-        Paragraph(
-            escape(" | ".join(filter(None, [f"Client: {cfg.client}" if cfg.client else "", f"CRS {cfg.crs}", f"Generated {today:%Y-%m-%d}", "Pitch pack (draft)"]))),
-            st["subtitle"],
-        ),
-    ]
+    subtitle = " | ".join(filter(None, [f"Client: {cfg.client}" if cfg.client else "", f"CRS {cfg.crs}", f"Generated {today:%Y-%m-%d}", "Pitch pack (draft)"]))
+    story: list = [Paragraph(escape(cfg.name), st["title"]), Paragraph(escape(subtitle), st["subtitle"])]
     marked = facts.marked
     banner = Table([[Paragraph(DISCLAIMER if marked else PLAIN_NOTE, st["banner"] if marked else st["small"])]], colWidths=[CONTENT_W])
     banner.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fdecea" if marked else "#f1f1f1")), ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#c0392b" if marked else "#b5b5b5")), ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-    story += [banner, Spacer(1, 10)]
+    if brand.cover_page:  # the title, subtitle and banner move to the cover
+        story = cover_story(brand, cfg.name, subtitle, banner, st, today.date())
+    else:
+        story += [banner, Spacer(1, 10)]
 
     sections = {
         "summary": _sec_summary(project, facts, lead_id, st, today),
@@ -709,10 +715,10 @@ def build_pdf(project: Project, lead_id: str | None = None, today: datetime | No
 
     path = outputs / PDF_NAME
     doc = SimpleDocTemplate(
-        str(path), pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=0.7 * inch, bottomMargin=0.9 * inch,
-        title=f"Gossan pitch pack: {cfg.name}", author="Gossan", subject="INTERNAL DRAFT - contains ARIS data (Access Only)" if marked else "Draft - machine-generated, for geologist review",
+        str(path), pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=top_margin(brand), bottomMargin=0.9 * inch,
+        title=f"Gossan pitch pack: {cfg.name}", author=brand.company or "Gossan", subject="INTERNAL DRAFT - contains ARIS data (Access Only)" if marked else "Draft - machine-generated, for geologist review",
     )  # fmt: skip
-    deco = _page_decorations(cfg.name, marked)
+    deco = page_decorations(cfg.name, marked, FOOTER, PLAIN_FOOTER, brand)
     doc.build(story, onFirstPage=deco, onLaterPages=deco)
 
     with pymupdf.open(path) as pdf:
@@ -729,6 +735,7 @@ def build_pdf(project: Project, lead_id: str | None = None, today: datetime | No
             "aris_marking": marked,
             "aris_evidence": facts.aris_evidence,
             "pages": n_pages,
+            "branding": {"company": brand.company, "logo": brand.logo.name if brand.logo else None, "cover_page": brand.cover_page, "accent": brand.accent},
             "sections": list(sections),
             "targeting_included": facts.target is not None,
             "leads_included": facts.leads is not None,

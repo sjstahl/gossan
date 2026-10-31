@@ -59,6 +59,12 @@ from gossan.report.branding import (
     set_properties,
     tint,
 )
+from gossan.report.branding_pdf import (
+    brand_styles,
+    cover_story,
+    page_decorations,
+    top_margin,
+)
 from gossan.report.pdf import (  # noqa: F401
     ASSETS_DIR,
     CONTENT_W,
@@ -136,8 +142,12 @@ def _banner(text: str, st: dict, marked: bool) -> RLTable:
     return t
 
 
-def pdf_story(report: AnalysisReport, st: dict) -> list:
-    story: list = [Paragraph(escape(report.title), st["title"]), Paragraph(escape(report.subtitle), st["subtitle"]), _banner(banner_text(report), st, report.marked), Spacer(1, 10)]
+def pdf_story(report: AnalysisReport, st: dict, brand: Branding | None = None) -> list:
+    banner = _banner(banner_text(report), st, report.marked)
+    if brand is not None and brand.cover_page:  # the title, subtitle and banner move to the cover
+        story: list = cover_story(brand, report.title, report.subtitle, banner, st)
+    else:
+        story = [Paragraph(escape(report.title), st["title"]), Paragraph(escape(report.subtitle), st["subtitle"]), banner, Spacer(1, 10)]
     for b in report.blocks:
         if isinstance(b, Heading):
             story.append(Paragraph(_rl_text(b.text), st["h1"] if b.level == 1 else st["h2"]))
@@ -162,31 +172,16 @@ def pdf_story(report: AnalysisReport, st: dict) -> list:
     return story
 
 
-def _decorations(name: str, marked: bool):
-    def draw(canvas, doc):
-        canvas.saveState()
-        canvas.setFont("Helvetica-Bold", 7)
-        canvas.setFillColor(colors.HexColor("#7b1d12" if marked else "#555555"))
-        canvas.drawString(MARGIN, 0.5 * inch, MARKED_FOOTER if marked else PLAIN_FOOTER)
-        canvas.setFont("Helvetica", 7)
-        canvas.setFillColor(colors.HexColor("#555555"))
-        canvas.drawRightString(PAGE_W - MARGIN, 0.5 * inch, f"{name} | Page {doc.page}")
-        canvas.setStrokeColor(colors.HexColor("#c8c8c8"))
-        canvas.line(MARGIN, 0.65 * inch, PAGE_W - MARGIN, 0.65 * inch)
-        canvas.restoreState()
-
-    return draw
-
-
-def write_pdf(report: AnalysisReport, path: Path, project_name: str) -> int:
-    st = _styles()
+def write_pdf(report: AnalysisReport, path: Path, project_name: str, branding: Branding | None = None) -> int:
+    """The report as PDF, in the company's look when ``branding`` is given (see ``gossan.report.branding_pdf``)."""
+    st = brand_styles(_styles(), branding)
     doc = SimpleDocTemplate(
-        str(path), pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=0.7 * inch, bottomMargin=0.9 * inch,
-        title=report.title, author="Gossan",
+        str(path), pagesize=letter, leftMargin=MARGIN, rightMargin=MARGIN, topMargin=top_margin(branding), bottomMargin=0.9 * inch,
+        title=report.title, author=(branding.company if branding and branding.company else None) or "Gossan",
         subject="INTERNAL DRAFT - contains Access Only data" if report.marked else "Draft - machine-generated, for geologist review",
     )  # fmt: skip
-    deco = _decorations(project_name, report.marked)
-    doc.build(pdf_story(report, st), onFirstPage=deco, onLaterPages=deco)
+    deco = page_decorations(project_name, report.marked, MARKED_FOOTER, PLAIN_FOOTER, branding)
+    doc.build(pdf_story(report, st, branding), onFirstPage=deco, onLaterPages=deco)
     with pymupdf.open(path) as pdf:
         return pdf.page_count
 
@@ -339,14 +334,15 @@ def build_analysis_report(project: Project, fmt: str = "both", *, open_only: boo
     assets.mkdir(parents=True, exist_ok=True)
     report = build_content(project, assets, open_only=open_only)
     written: list[tuple[Path, str, dict]] = []
+    brand = resolve(project)  # a missing or unreadable logo raises BrandingError before anything is written
+    brand_note = {"company": brand.company, "template": brand.template.name if brand.template else None, "cover_page": brand.cover_page, "logo": brand.logo.name if brand.logo else None}
     if fmt in {"pdf", "both"}:
         path = outputs / PDF_NAME
-        written.append((path, "report_analysis_pdf", {"pages": write_pdf(report, path, project.config.name)}))
+        written.append((path, "report_analysis_pdf", {"pages": write_pdf(report, path, project.config.name, brand), "branding": brand_note}))
     if fmt in {"docx", "both"}:
         path = outputs / DOCX_NAME
-        brand = resolve(project)
         write_docx(report, path, project.config.name, brand)
-        written.append((path, "report_analysis_docx", {"branding": {"company": brand.company, "template": brand.template.name if brand.template else None, "cover_page": brand.cover_page, "logo": brand.logo.name if brand.logo else None}}))
+        written.append((path, "report_analysis_docx", {"branding": brand_note}))
     licence = derived_license_from(project.provenance.read(), report.inputs)
     for path, dataset, extra in written:
         project.provenance.log(
